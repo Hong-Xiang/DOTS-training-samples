@@ -326,6 +326,9 @@ public class AntManager : MonoBehaviour {
 
 			float dx, dy, dist;
 
+			// 如果遇到障碍物，则执行一个类似刚体碰撞的处理流程
+			// 位置使用硬推出 （TODO：学名？）
+			// 方向等价于关于法向的反射，其中由于障碍物是球，所以法向始终是ant和障碍物中心的连线方向
 			Obstacle[] nearbyObstacles = GetObstacleBucket(ant.position);
 			for (int j=0;j<nearbyObstacles.Length;j++) {
 				Obstacle obstacle = nearbyObstacles[j];
@@ -371,6 +374,7 @@ public class AntManager : MonoBehaviour {
 			DropPheromones(ant.position,excitement);
 			//}
 
+			// 渲染用
 			Matrix4x4 matrix = GetRotationMatrix(ant.facingAngle);
 			matrix.m03 = ant.position.x / mapSize;
 			matrix.m13 = ant.position.y / mapSize;
