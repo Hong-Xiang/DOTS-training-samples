@@ -160,15 +160,15 @@ MonoBehaviour:
   antAccel: 0.07
   trailAddSpeed: 0
   trailDecay: 0
-  randomSteering: 0.14
+  randomSteering: 0.1
   pheromoneSteerStrength: 0.015
   wallSteerStrength: 0.12
-  goalSteerStrength: 0.04
+  goalSteerStrength: 0.14
   outwardStrength: 0.003
   inwardStrength: 0.003
   rotationResolution: 360
-  obstacleRingCount: 4
-  obstaclesPerRing: 0.8
+  obstacleRingCount: 1
+  obstaclesPerRing: 0.4
   obstacleRadius: 2
   ObstaclePrefab: {fileID: 4942574585074813650, guid: 75c4e9ad1b646044b8ecce931b36c1a2,
     type: 3}

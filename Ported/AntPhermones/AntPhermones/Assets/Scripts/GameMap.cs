@@ -22,9 +22,8 @@ partial struct MapBoundary
 {
     public float2 X;
     public float2 Y;
-    public float2 BoundaryCollision(ref float2 velocity, in float2 previousPosition)
+    public (float2, float2) BoundaryCollision(float2 velocity, in float2 previousPosition, float2 updatedPosition)
     {
-        var updatedPosition = previousPosition + velocity;
         if (updatedPosition.x < X[0] || updatedPosition.x > X[1])
         {
             updatedPosition.x = previousPosition.x;
@@ -35,7 +34,7 @@ partial struct MapBoundary
             updatedPosition.y = previousPosition.y;
             velocity.y = -velocity.y;
         }
-        return updatedPosition;
+        return (updatedPosition, velocity);
     }
 }
 

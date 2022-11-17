@@ -10,7 +10,7 @@ partial struct Obstacle : IComponentData
     public float radius;
 
     [BurstCompile]
-    public float2 BoundaryCollision(ref float2 velocity, in float2 obstaclePosition, in float2 targetPosition)
+    public (float2, float2) BoundaryCollision(float2 velocity, in float2 obstaclePosition, in float2 targetPosition)
     {
         var delta = targetPosition - obstaclePosition;
         var sqrDist = math.lengthsq(delta);
@@ -20,12 +20,12 @@ partial struct Obstacle : IComponentData
             // Question: why not using reflect ?
             // velocity = math.reflect(velocity, delta);
             velocity -= n * math.dot(n, velocity) * 1.5f;
-            return obstaclePosition + n * radius;
+            return (obstaclePosition + n * radius, velocity);
 
         }
         else
         {
-            return targetPosition;
+            return (targetPosition, velocity);
         }
     }
 
