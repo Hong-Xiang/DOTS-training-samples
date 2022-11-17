@@ -162,16 +162,16 @@ partial struct AntTargetingSystem : ISystem
 
         foreach (var resource in SystemAPI.Query<TransformAspect>().WithAll<Resource>())
         {
-            resourcePosition = math.float2(resource.Position.x, resource.Position.y);
+            resourcePosition = math.float2(resource.Position.xy);
         }
         foreach (var colony in SystemAPI.Query<TransformAspect>().WithAll<Colony>())
         {
-            colonyPosition = math.float2(colony.Position.x, colony.Position.y);
+            colonyPosition = math.float2(colonyPosition.xy);
         }
 
         foreach (var (t, s, e) in SystemAPI.Query<TransformAspect, RefRW<AntSteer>>().WithAll<HoldingResource>().WithEntityAccess())
         {
-            if (math.distancesq(math.float2(t.Position.x, t.Position.y), colonyPosition) < 4f * 4f)
+            if (math.distancesq(math.float2(t.Position.xy), colonyPosition) < 4f * 4f)
             {
                 ecb.RemoveComponent<HoldingResource>(e);
                 s.ValueRW.Value += math.PI * strength;
@@ -359,11 +359,10 @@ partial struct AntGoalSteeringSystem : ISystem
 }
 
 
-class PheromoneSystem : SystemBase
+partial class PheromoneSystem : SystemBase
 {
     protected override void OnUpdate()
     {
-        throw new System.NotImplementedException();
     }
 }
 
@@ -632,6 +631,7 @@ partial struct PushInwardOutwardSystem : ISystem
     [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
+        state.Enabled = false;
     }
 
     [BurstCompile]

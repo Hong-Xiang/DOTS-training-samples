@@ -152,7 +152,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0b8ac5e579db59e45bcf19f75ca8d9cd, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  antCount: 1000
+  antCount: 1
   mapSize: 128
   bucketResolution: 0
   antSize: {x: 0.008, y: 0.004, z: 0}
@@ -160,15 +160,15 @@ MonoBehaviour:
   antAccel: 0.07
   trailAddSpeed: 0
   trailDecay: 0
-  randomSteering: 0.1
+  randomSteering: 0.14
   pheromoneSteerStrength: 0.015
   wallSteerStrength: 0.12
   goalSteerStrength: 0.14
   outwardStrength: 0.003
   inwardStrength: 0.003
   rotationResolution: 360
-  obstacleRingCount: 1
-  obstaclesPerRing: 0.4
+  obstacleRingCount: 0
+  obstaclesPerRing: 0.8
   obstacleRadius: 2
   ObstaclePrefab: {fileID: 4942574585074813650, guid: 75c4e9ad1b646044b8ecce931b36c1a2,
     type: 3}
