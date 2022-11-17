@@ -1,81 +1,12 @@
-using System.Collections;
-using System.Collections.Generic;
-using UnityEngine;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Burst;
 using Unity.Transforms;
-using Unity.Collections;
-using Unity.VisualScripting;
 
 struct AntVelocity : IComponentData
 {
     public polar2 Velocity; // (r, theta) in polar coordinate
 }
-
-[BurstCompile]
-struct polar2
-{
-    public float2 Value;
-
-    public float R
-    {
-        get => Value[0];
-        set => Value[0] = value;
-    }
-
-    public float Theta
-    {
-        get => Value[1];
-        set => Value[1] = value;
-    }
-
-    public float X
-    {
-        get => R * math.cos(Theta);
-    }
-
-    public float Y
-    {
-        get => R * math.sin(Theta);
-    }
-
-    public float2 Cartesian2
-    {
-        get => math.float2(X, Y);
-        set
-        {
-            R = math.length(value);
-            Theta = math.atan2(value.y, value.x);
-        }
-    }
-}
-
-[BurstCompile]
-partial struct MapBoundary
-{
-    public float2 X;
-    public float2 Y;
-
-
-
-    public float2 BoundaryCollision(ref float2 velocity, in float2 previousPosition)
-    {
-        var updatedPosition = previousPosition + velocity;
-        if (updatedPosition.x < X[0] || updatedPosition.x > X[1])
-        {
-            updatedPosition.x = previousPosition.x;
-            velocity.x = -velocity.x;
-        }
-        if (updatedPosition.y < Y[0] || updatedPosition.y > Y[1])
-        {
-            updatedPosition.y = previousPosition.y;
-            velocity.y = -velocity.y;
-        }
-        return updatedPosition;
-    }
-}
-
 
 struct HoldingResource : IComponentData
 {
@@ -226,7 +157,7 @@ partial struct AntSteeringSystem : ISystem
         //  .WithAll<Obstacle>().Where(o => math.lengthsq(antTransform.Position - obstacleTransform.Position) < obstacleRadius)
         foreach (var config in SystemAPI.Query<ConfigurationComponent>())
         {
-            foreach (var resource in SystemAPI.Query<TransformAspect>().WithAll<ResourceComponent>())
+            foreach (var resource in SystemAPI.Query<TransformAspect>().WithAll<Resource>())
             {
                 foreach (var ant in SystemAPI.Query<RefRW<AntVelocity>>())
                 {

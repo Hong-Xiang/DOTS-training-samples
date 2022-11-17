@@ -1,13 +1,8 @@
-using System.Collections;
-using System.Collections.Generic;
 using Unity.Entities;
 using Unity.Mathematics;
 using UnityEngine;
 using Unity.Burst;
 using Unity.Transforms;
-using static UnityEditor.Rendering.CameraUI;
-using System.Linq;
-using Unity.VisualScripting;
 
 [BurstCompile]
 partial struct Obstacle : IComponentData
@@ -53,78 +48,9 @@ partial struct Obstacle : IComponentData
     }
 }
 
-[BurstCompile]
-partial struct StaticObjectUtils
-{
-    [BurstCompile]
-    public Colony CreateColony(ref EntityCommandBuffer cmd, in Entity prefab)
-    {
-        return new Colony
-        {
-            instance = cmd.Instantiate(prefab)
-        };
-    }
-
-    [BurstCompile]
-    public Resource CreateResource(ref EntityCommandBuffer cmd, in Entity prefab)
-    {
-        var result = new Resource
-        {
-            instance = cmd.Instantiate(prefab)
-        };
-        cmd.AddComponent(result.instance, new ResourceComponent());
-        return result;
-    }
-}
 
 [BurstCompile]
-partial struct Colony
-{
-    public Entity instance;
-
-    [BurstCompile]
-    public void SetLocation(ref EntityCommandBuffer cmd, float2 position)
-    {
-        cmd.SetComponent(instance, new LocalToWorldTransform
-        {
-            Value = UniformScaleTransform.FromPosition(math.float3(position, 0f))
-        });
-    }
-}
-
-[BurstCompile]
-partial struct Resource
-{
-    public Entity instance;
-
-    [BurstCompile]
-    public void SetLocation(ref EntityCommandBuffer cmd, int mapSize)
-    {
-        float resourceAngle = UnityEngine.Random.value * 2f * Mathf.PI;
-        var position =
-            Vector2.one * mapSize * .5f + new Vector2(Mathf.Cos(resourceAngle) * mapSize * .475f, Mathf.Sin(resourceAngle) * mapSize * .475f);
-
-        cmd.SetComponent(instance, new LocalToWorldTransform
-        {
-            Value = UniformScaleTransform.FromPosition(
-                        position.x,
-                        position.y,
-                        0f
-                    )
-        });
-    }
-}
-
-struct ResourceComponent : IComponentData
-{
-}
-
-// Unmanaged systems based on ISystem can be Burst compiled, but this is not yet the default.
-// So we have to explicitly opt into Burst compilation with the [BurstCompile] attribute.
-// It has to be added on BOTH the struct AND the OnCreate/OnDestroy/OnUpdate functions to be
-// effective.
-[BurstCompile]
-partial struct StaticObjectsGenerateSystem : ISystem
+partial struct ObstacleGenerationSystem : ISystem
 {
     // Every function defined by ISystem has to be implemented even if empty.
     [BurstCompile]
@@ -179,18 +105,9 @@ partial struct StaticObjectsGenerateSystem : ISystem
     {
         var ecbSingleton = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
-        var util = new StaticObjectUtils();
         foreach (var c in SystemAPI.Query<ConfigurationComponent>())
         {
             GenerateObstacles(ref ecb, c);
-            var colony = util.CreateColony(ref ecb, c.ColonyPrefab);
-            colony.SetLocation(ref ecb, math.float2(c.mapSize * .5f));
-
-            //float resourceAngle = Random.value * 2f * Mathf.PI;
-            //resourcePosition = Vector2.one * mapSize * .5f + new Vector2(Mathf.Cos(resourceAngle) * mapSize * .475f, Mathf.Sin(resourceAngle) * mapSize * .475f);
-
-            var resource = util.CreateResource(ref ecb, c.ResourcePrefab);
-            resource.SetLocation(ref ecb, c.mapSize);
         }
         state.Enabled = false;
     }
