@@ -8,11 +8,74 @@ using Unity.Transforms;
 using Unity.Collections;
 using Unity.VisualScripting;
 
-struct Ant : IComponentData
+struct AntVelocity : IComponentData
 {
-    public float facingAngle;
-    public float speed;
+    public polar2 Velocity; // (r, theta) in polar coordinate
 }
+
+[BurstCompile]
+struct polar2
+{
+    public float2 Value;
+
+    public float R
+    {
+        get => Value[0];
+        set => Value[0] = value;
+    }
+
+    public float Theta
+    {
+        get => Value[1];
+        set => Value[1] = value;
+    }
+
+    public float X
+    {
+        get => R * math.cos(Theta);
+    }
+
+    public float Y
+    {
+        get => R * math.sin(Theta);
+    }
+
+    public float2 Cartesian2
+    {
+        get => math.float2(X, Y);
+        set
+        {
+            R = math.length(value);
+            Theta = math.atan2(value.y, value.x);
+        }
+    }
+}
+
+[BurstCompile]
+partial struct MapBoundary
+{
+    public float2 X;
+    public float2 Y;
+
+
+
+    public float2 BoundaryCollision(ref float2 velocity, in float2 previousPosition)
+    {
+        var updatedPosition = previousPosition + velocity;
+        if (updatedPosition.x < X[0] || updatedPosition.x > X[1])
+        {
+            updatedPosition.x = previousPosition.x;
+            velocity.x = -velocity.x;
+        }
+        if (updatedPosition.y < Y[0] || updatedPosition.y > Y[1])
+        {
+            updatedPosition.y = previousPosition.y;
+            velocity.y = -velocity.y;
+        }
+        return updatedPosition;
+    }
+}
+
 
 struct HoldingResource : IComponentData
 {
@@ -48,12 +111,18 @@ partial struct AntSpwanSystem : ISystem
             for (var i = 0; i < c.antCount; i++)
             {
                 var instance = ecb.Instantiate(c.AntPrefab);
-                var position = new float2(UnityEngine.Random.Range(-5f, 5f), UnityEngine.Random.Range(-5f, 5f)) + c.mapSize * .5f;
-                float facingAngle = UnityEngine.Random.Range(0.0f, math.PI * 2f);
-                ecb.AddComponent(instance, new Ant { facingAngle = facingAngle, speed = 0.5f });
+                var position = math.float2(UnityEngine.Random.Range(-5f, 5f), UnityEngine.Random.Range(-5f, 5f)) + c.mapSize * .5f;
                 ecb.SetComponent(instance, new LocalToWorldTransform
                 {
-                    Value = UniformScaleTransform.FromPosition(new float3(position.x, position.y, 0f))
+                    Value = UniformScaleTransform.FromPosition(math.float3(position, 0f))
+                });
+                ecb.AddComponent(instance, new AntVelocity
+                {
+                    Velocity = new polar2
+                    {
+                        Theta = UnityEngine.Random.Range(0.0f, math.PI * 2f),
+                        R = 0.5f
+                    }
                 });
             }
         }
@@ -83,11 +152,32 @@ partial struct AntMoveSystem : ISystem
     public void OnUpdate(ref SystemState state)
     {
 
-        foreach (var (ant, transform) in SystemAPI.Query<RefRO<Ant>, TransformAspect>())
+        foreach (var c in SystemAPI.Query<ConfigurationComponent>())
         {
-            var speedv = new float2 { x = math.cos(ant.ValueRO.facingAngle), y = math.sin(ant.ValueRO.facingAngle) } * ant.ValueRO.speed;
-            transform.Position += new float3 { x = speedv.x, y = speedv.y, z = 0f };
+            var mapBoundary = new MapBoundary
+            {
+                X = math.float2(0f, c.mapSize),
+                Y = math.float2(0f, c.mapSize),
+            };
+            foreach (var (ant, transform) in SystemAPI.Query<RefRW<AntVelocity>, TransformAspect>())
+            {
+                var p = math.float2(transform.Position.x, transform.Position.y);
+                var v = ant.ValueRO.Velocity.Cartesian2;
+
+                p = mapBoundary.BoundaryCollision(ref v, p);
+
+
+                // TODO: check obstacle collision
+                foreach (var (o, t) in SystemAPI.Query<Obstacle, TransformAspect>())
+                {
+                    p = o.BoundaryCollision(ref v, math.float2(t.Position.x, t.Position.y), p);
+                }
+
+                ant.ValueRW.Velocity.Cartesian2 = v;
+                transform.Position = math.float3(p, transform.Position.z);
+            }
         }
+
     }
 }
 
@@ -136,29 +226,28 @@ partial struct AntSteeringSystem : ISystem
         //  .WithAll<Obstacle>().Where(o => math.lengthsq(antTransform.Position - obstacleTransform.Position) < obstacleRadius)
         foreach (var config in SystemAPI.Query<ConfigurationComponent>())
         {
-
-
-            foreach (var (ant, antTransform) in SystemAPI.Query<RefRW<Ant>, TransformAspect>())
+            foreach (var resource in SystemAPI.Query<TransformAspect>().WithAll<ResourceComponent>())
             {
-                var targetSpeed = config.antSpeed;
+                foreach (var ant in SystemAPI.Query<RefRW<AntVelocity>>())
+                {
+                    var targetSpeed = config.antSpeed;
 
-                ant.ValueRW.facingAngle += UnityEngine.Random.Range(-config.randomSteering, config.randomSteering);
-                ant.ValueRW.speed += (targetSpeed - ant.ValueRW.speed) * config.antAccel;
+                    ant.ValueRW.Velocity.Theta += UnityEngine.Random.Range(-config.randomSteering, config.randomSteering);
+                    ant.ValueRW.Velocity.R += (targetSpeed - ant.ValueRO.Velocity.R) * config.antAccel;
 
 
-
-                //foreach (var obstacleTransform in SystemAPI.Query<TransformAspect>().WithAll<Obstacle>())
-                //{
-                //    WallSteering(
-                //        ant.position,
-                //        ant.facingAngle,
-                //        obstacleTransform.Position,
-                //        obstacleRadius);
-                //}
-                //var rotateSpeed = 0.05f;
-                //transform.RotateWorld(quaternion.RotateY(UnityEngine.Random.Range(-math.PI * rotateSpeed, math.PI * rotateSpeed)));
+                    //foreach (var obstacleTransform in SystemAPI.Query<TransformAspect>().WithAll<Obstacle>())
+                    //{
+                    //    WallSteering(
+                    //        ant.position,
+                    //        ant.facingAngle,
+                    //        obstacleTransform.Position,
+                    //        obstacleRadius);
+                    //}
+                    //var rotateSpeed = 0.05f;
+                    //transform.RotateWorld(quaternion.RotateY(UnityEngine.Random.Range(-math.PI * rotateSpeed, math.PI * rotateSpeed)));
+                }
             }
         }
-
     }
 }
