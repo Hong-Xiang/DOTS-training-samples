@@ -17,8 +17,13 @@ partial struct ResourceConfiguration : IComponentData
     public int startResourceCount;
 }
 
-struct HittingGround : IComponentData
+struct HittingSupport : IComponentData
 {
+}
+
+struct StackIndex : IComponentData
+{
+    public int Value;
 }
 
 partial struct Resource : IComponentData
@@ -31,12 +36,18 @@ partial struct Resource : IComponentData
 
 struct ResourceGrid
 {
-    public int2 Shape;
-    public float2 Size;
+    public int3 Shape;
+    public float3 Size;
+    public float3 Center;
 
-    float2 IndexToPosition(int2 idx)
+    public float3 IndexToPosition(int3 idx)
     {
-        return Size / math.float2(Shape) * (math.float2(idx) + .5f) - Size * .5f;
+        return Size / math.float3(Shape) * (math.float3(idx) + .5f) + Center - Size * .5f;
+    }
+
+    public int3 PositinToIndex(float3 pos)
+    {
+        return math.int3((pos - Center + Size * .5f) / (Size / Shape));
     }
 
 }
@@ -44,20 +55,47 @@ struct ResourceGrid
 partial struct ResourceSpawnSystem : ISystem
 {
 
+    public NativeArray<int> gridStack;
+    int2 gridShape;
 
     public Unity.Mathematics.Random random;
     public void OnCreate(ref SystemState state)
     {
         random = new Unity.Mathematics.Random(42);
+        gridShape = math.int2(512, 512);
+        gridStack = new NativeArray<int>(gridShape.x * gridShape.y, Allocator.Persistent);
     }
 
     public void OnDestroy(ref SystemState state)
     {
+        gridStack.Dispose();
     }
+    bool ShouldSpawn()
+    {
+        // return resourcesCount < 1000 && MouseRaycaster.isMouseTouchingField && Input.GetKey(KeyCode.Mouse0);
+        return Input.GetKey(KeyCode.Mouse0);
+    }
+
+
+
+    void SpawnOnMouseClick(ResourceConfiguration config)
+    {
+        if (ShouldSpawn())
+        {
+            // spawnTimer += Time.deltaTime;
+            // while (spawnTimer > 1f / spawnRate)
+            // {
+            //     spawnTimer -= 1f / spawnRate;
+            //     SpawnResource(MouseRaycaster.worldMousePosition);
+            // }
+        }
+    }
+
 
     void SpawnResource(
          ref EntityCommandBuffer ECB,
          Entity resourcePrefab,
+         float scale,
          float3 position)
     {
         var instance = ECB.Instantiate(resourcePrefab);
@@ -68,7 +106,7 @@ partial struct ResourceSpawnSystem : ISystem
         });
         ECB.SetComponent(instance, new LocalToWorldTransform
         {
-            Value = UniformScaleTransform.FromPosition(position)
+            Value = UniformScaleTransform.FromPosition(position).ApplyScale(scale)
         });
     }
 
@@ -80,56 +118,99 @@ partial struct ResourceSpawnSystem : ISystem
 
         var config = SystemAPI.GetSingleton<ResourceConfiguration>();
 
-        var gridSize = math.float2(field.Size.xz);
         var grid = new ResourceGrid
         {
-            Shape = math.int2(math.ceil(gridSize / config.resourceSize)),
-            Size = gridSize
+            Shape = math.int3(math.ceil(field.Size / config.resourceSize)),
+            Size = field.Size,
+            Center = math.float3(0f, field.Size.y * .5f, 0f)
         };
 
 
+        if (ShouldSpawn())
+        {
+            var position = random.NextFloat3(grid.Center - grid.Size * .5f, grid.Center + grid.Size * .5f);
+            position.y = 0;
+            var idx = grid.PositinToIndex(position);
+            // position.y = gridStack[idx.x * gridShape.y + idx.y] * config.resourceSize;
+            gridStack[idx.x * gridShape.y + idx.y] += 1;
+            position = grid.IndexToPosition(math.int3(idx.x, gridStack[idx.x * gridShape.y + idx.y], idx.z));
+            SpawnResource(ref ecb, config.resourcePrefab, config.resourceSize, position);
+            Debug.Log(grid.IndexToPosition(math.int3(0, 1, 0)));
+            Debug.Log(grid.Center);
+            Debug.Log(grid.Size);
+            Debug.Log(grid.Shape);
+            Debug.Log(config.resourceSize);
+        }
+    }
+}
+
+partial struct ResourceAccelerationSystem : ISystem
+{
+    public void OnCreate(ref SystemState state)
+    {
+    }
+
+    public void OnDestroy(ref SystemState state)
+    {
+    }
+
+    public void OnUpdate(ref SystemState state)
+    {
+        var fieldConfig = SystemAPI.GetSingleton<FieldConfiguration>();
+
+        foreach (var v in SystemAPI.Query<RefRW<Resource>>())
+        {
+            v.ValueRW.Velocity += fieldConfig.Gravity * math.float3(0f, 1f, 0f);
+        }
+    }
+}
 
 
-        var randomSize = 1f;
 
-        // var position = math.float3(
-        //     UnityEngine.Random.Range(-randomSize, randomSize),
-        //     UnityEngine.Random.Range(-randomSize, randomSize),
-        //     UnityEngine.Random.Range(-randomSize, randomSize)
-        // );
-        // var position = new Vector3(minGridPos.x * .25f + Random.value * Field.size.x * .25f, Random.value * 10f, minGridPos.y + Random.value * Field.size.z);
-        var position = random.NextFloat3(
-            math.float3(0f),
-            field.Size
-        ) - math.float3(field.Size.x * .5f, 0f, field.Size.z * .5f);
-        SpawnResource(ref ecb, config.resourcePrefab, position);
+partial struct ResourceMoveSystem : ISystem
+{
+    public void OnCreate(ref SystemState state)
+    {
+        state.Enabled = false;
+    }
+
+    public void OnDestroy(ref SystemState state)
+    {
+    }
+
+    // int2 GetGridIndex(float3 pos)
+    // {
+    //     int2 idx = math.floor((pos - minGridPos + gridSize * .5f) / gridSize);
+    //     gridX = Mathf.FloorToInt((pos.x - minGridPos.x + gridSize.x * .5f) / gridSize.x);
+    //     gridY = Mathf.FloorToInt((pos.z - minGridPos.y + gridSize.y * .5f) / gridSize.y);
+
+
+    //     gridX = Mathf.Clamp(gridX, 0, gridCounts.x - 1);
+    //     gridY = Mathf.Clamp(gridY, 0, gridCounts.y - 1);
+    // }
+
+
+    public void OnUpdate(ref SystemState state)
+    {
+        var ecbSingleton = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>();
+        var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
+        foreach (var (v, t, e) in SystemAPI.Query<Resource, TransformAspect>().WithEntityAccess())
+        {
+            t.Position += v.Velocity * SystemAPI.Time.DeltaTime;
+            // var gridIdx = GetGridIndex(t.Position);
+            // float floorY = GetStackPos(resource.gridX, resource.gridY, stackHeights[resource.gridX, resource.gridY]).y;
+            if (t.Position.y <= 0f)
+            {
+                ecb.AddComponent(e, new HittingSupport());
+                t.Position = math.float3(t.Position.x, 0f, t.Position.z);
+            }
+        }
     }
 }
 
 partial class ResourceManagerSystem : SystemBase
 {
     int[,] stackHeight;
-
-    bool ShouldSpawnResource()
-    {
-        // return resourcesCount < 1000 && MouseRaycaster.isMouseTouchingField && Input.GetKey(KeyCode.Mouse0);
-        return false;
-    }
-
-
-
-    void SpawnOnMouseClick(ResourceConfiguration config)
-    {
-        if (ShouldSpawnResource())
-        {
-            // spawnTimer += Time.deltaTime;
-            // while (spawnTimer > 1f / spawnRate)
-            // {
-            //     spawnTimer -= 1f / spawnRate;
-            //     SpawnResource(MouseRaycaster.worldMousePosition);
-            // }
-        }
-    }
 
     void MoveResourceToFollowHolder(Resource resource, float3 holderPosition, ref float3 resourcePosition, ref float3 resourceVelocity)
     {
@@ -212,7 +293,7 @@ partial class ResourceManagerSystem : SystemBase
     }
 }
 
-partial struct ResourceHittingGroundSystem : ISystem
+partial struct ResourceHittingSupportSystem : ISystem
 {
     void ResourceHitGround(Resource resource)
     {
@@ -258,7 +339,7 @@ partial struct ResourceHittingGroundSystem : ISystem
     {
 
 
-        foreach (var resource in SystemAPI.Query<Resource>().WithAll<HittingGround>())
+        foreach (var resource in SystemAPI.Query<Resource>().WithAll<HittingSupport>())
         {
             ResourceHitGround(resource);
         }
