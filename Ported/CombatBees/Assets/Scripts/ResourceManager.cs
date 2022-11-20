@@ -5,6 +5,7 @@ using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Collections;
 using Unity.Transforms;
+using System;
 
 public class ResourceManager : MonoBehaviour
 {
@@ -47,10 +48,27 @@ struct ResourceConfiguration : IComponentData
 
 }
 
-partial struct Native2DArray<T> where T : struct
+struct Array2D<T> : IDisposable where T : struct
 {
-    int2 shape;
-    NativeArray<T> data;
+    public int2 shape;
+    public NativeArray<T> data;
+
+    public Array2D(int2 shape)
+    {
+        this.shape = shape;
+        data = new NativeArray<T>(shape.x * shape.y, Allocator.Persistent);
+    }
+
+    public T this[int idx, int idy]
+    {
+        get => data[idx * shape.y + idy];
+        set => data[idx * shape.y + idy] = value;
+    }
+
+    public void Dispose()
+    {
+        data.Dispose();
+    }
 }
 
 partial class ResourceSystem : SystemBase
@@ -68,7 +86,7 @@ partial class ResourceSystem : SystemBase
 
 
 
-    int[,] stackHeights;
+    Array2D<int> stackHeights;
 
     float spawnTimer = 0f;
 
@@ -92,6 +110,7 @@ partial class ResourceSystem : SystemBase
             {
                 return null;
             }
+
         }
     }
 
@@ -103,7 +122,9 @@ partial class ResourceSystem : SystemBase
 
     Vector3 GetStackPos(int x, int y, int height)
     {
-        return new Vector3(minGridPos.x + x * gridSize.x, -Field.size.y * .5f + (height + .5f) * config.resourceSize, minGridPos.y + y * gridSize.y);
+        return new Vector3(minGridPos.x + x * gridSize.x,
+                           -Field.size.y * .5f + (height + .5f) * config.resourceSize,
+                           minGridPos.y + y * gridSize.y);
     }
 
     Vector3 NearestSnappedPos(Vector3 pos)
@@ -121,19 +142,19 @@ partial class ResourceSystem : SystemBase
         gridY = Mathf.Clamp(gridY, 0, gridCounts.y - 1);
     }
 
-    void SpawnResource(ref EntityCommandBuffer ECB)
+    void SpawnResource(ref EntityCommandBuffer ECB, float scale)
     {
         Vector3 pos = new Vector3(minGridPos.x * .25f + random.NextFloat() * Field.size.x * .25f, random.NextFloat() * 10f, minGridPos.y + random.NextFloat() * Field.size.z);
-        SpawnResource(ref ECB, pos);
+        SpawnResource(ref ECB, pos, scale);
     }
-    void SpawnResource(ref EntityCommandBuffer ECB, Vector3 pos)
+    void SpawnResource(ref EntityCommandBuffer ECB, Vector3 pos, float scale)
     {
         Resource resource = new Resource(pos);
         var instance = EntityManager.Instantiate(config.resourcePrefab);
         // var instance = ECB.Instantiate(config.resourcePrefab);
-        EntityManager.SetComponentData(instance, new LocalToParentTransform
+        EntityManager.AddComponentData(instance, new LocalToWorldTransform
         {
-            Value = UniformScaleTransform.FromPosition(pos)
+            Value = UniformScaleTransform.FromPosition(pos).ApplyScale(scale)
         });
         resources.Add(resource);
     }
@@ -172,11 +193,11 @@ partial class ResourceSystem : SystemBase
             gridCounts = Vector2Int.RoundToInt(new Vector2(Field.size.x, Field.size.z) / config.resourceSize);
             gridSize = new Vector2(Field.size.x / gridCounts.x, Field.size.z / gridCounts.y);
             minGridPos = new Vector2((gridCounts.x - 1f) * -.5f * gridSize.x, (gridCounts.y - 1f) * -.5f * gridSize.y);
-            stackHeights = new int[gridCounts.x, gridCounts.y];
+            stackHeights = new Array2D<int>(math.int2(gridCounts.x, gridCounts.y));
 
             for (int i = 0; i < config.startResourceCount; i++)
             {
-                SpawnResource(ref ecb);
+                SpawnResource(ref ecb, config.resourceSize);
             }
             isFirstRun = false;
         }
@@ -191,11 +212,11 @@ partial class ResourceSystem : SystemBase
                 while (spawnTimer > 1f / config.spawnRate)
                 {
                     spawnTimer -= 1f / config.spawnRate;
-                    SpawnResource(ref ecb, MouseRaycaster.worldMousePosition);
+                    SpawnResource(ref ecb, MouseRaycaster.worldMousePosition, config.resourceSize);
                 }
             }
         }
-        SpawnResource(ref ecb, Vector3.zero);
+        SpawnResource(ref ecb, Vector3.zero, config.resourceSize);
         ecb.Playback(EntityManager);
 
         for (int i = 0; i < resources.Count; i++)
