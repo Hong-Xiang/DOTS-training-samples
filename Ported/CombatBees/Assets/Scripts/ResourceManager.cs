@@ -74,6 +74,8 @@ struct Array2D<T> : IDisposable where T : struct
 partial class ResourceSystem : SystemBase
 {
     public ResourceConfiguration config;
+    public EntityQuery beeQuery;
+
     Unity.Mathematics.Random random;
 
 
@@ -177,6 +179,7 @@ partial class ResourceSystem : SystemBase
 
         instance = this;
         random = new Unity.Mathematics.Random(42);
+        Enabled = false;
     }
 
     protected override void OnUpdate()
@@ -264,7 +267,8 @@ partial class ResourceSystem : SystemBase
                         }
                         for (int j = 0; j < config.beesPerResource; j++)
                         {
-                            BeeManager.SpawnBee(resource.position, team);
+                            // TODO: add method to span bee
+                            // BeeManagerSystem.SpawnBee(resource.position, team);
                         }
                         ParticleManager.SpawnParticle(resource.position, ParticleType.SpawnFlash, Vector3.zero, 6f, 5);
                         DeleteResource(resource);

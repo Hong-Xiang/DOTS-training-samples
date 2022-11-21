@@ -175,3 +175,69 @@ Transform:
   m_Father: {fileID: 0}
   m_RootOrder: 0
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &2019267241
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2019267243}
+  - component: {fileID: 2019267242}
+  m_Layer: 0
+  m_Name: BeeConfiguration
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &2019267242
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2019267241}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fe569bb6166ee4640a06ff0206bedfa0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  BeePrefab: {fileID: 2860482226972931965, guid: 0534b5e26d6c20a41b0c83cc86555947,
+    type: 3}
+  teamColors:
+  - {r: 0.30980393, g: 0.427451, b: 1, a: 0}
+  - {r: 0.9450981, g: 0.9490197, b: 0.5921569, a: 1}
+  minBeeSize: 0.25
+  maxBeeSize: 0.5
+  speedStretch: 0.2
+  rotationStiffness: 5
+  aggression: 0.5
+  flightJitter: 200
+  teamAttraction: 5
+  teamRepulsion: 4
+  damping: 0.1
+  chaseForce: 50
+  carryForce: 25
+  grabDistance: 0.5
+  attackDistance: 4
+  attackForce: 500
+  hitDistance: 0.5
+  maxSpawnSpeed: 75
+  startBeeCount: 100
+--- !u!4 &2019267243
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2019267241}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 1
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
