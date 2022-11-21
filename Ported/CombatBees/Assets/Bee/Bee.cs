@@ -85,35 +85,63 @@ public partial struct BeeRandomWalkSystem : ISystem
 
 }
 
-public partial struct BeeAliasSystem : ISystem
+[UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
+[UpdateBefore(typeof(BeeDeathSystem))]
+public partial struct BeeAlliesSystem : ISystem
 {
+    Unity.Mathematics.Random random;
+    ComponentLookup<LocalToWorldTransform> LocalToWorldTransformFromEntity;
     public void OnCreate(ref SystemState state)
     {
+        random = Unity.Mathematics.Random.CreateFromIndex(42);
+        LocalToWorldTransformFromEntity = SystemAPI.GetComponentLookup<LocalToWorldTransform>(true);
     }
 
     public void OnDestroy(ref SystemState state)
     {
     }
 
+    void AlliesFriend(ref SystemState state, int team)
+    {
+
+        var config = SystemAPI.GetSingleton<BeeConfiguration>();
+        var deltaTime = SystemAPI.Time.DeltaTime;
+        var q = SystemAPI.QueryBuilder().WithAll<BeeComponent, Team>().Build();
+        q.SetSharedComponentFilter(new Team { Value = team });
+        using var allies = q.ToEntityArray(Allocator.Temp);
+        LocalToWorldTransformFromEntity.Update(ref state);
+
+        foreach (var (bee, transform, velocity) in SystemAPI.Query<BeeComponent, TransformAspect, RefRW<Velocity>>().WithSharedComponentFilter(new Team { Value = team }))
+        {
+            // 原始代码中没有进行这个检查，原则上算是一个bug，只不过这个不会出现数组访问越界，但是会除0
+            if (allies.Length <= 1)
+            {
+                continue;
+            }
+            var attractiveFriend = allies[random.NextInt(0, allies.Length)];
+            var delta = LocalToWorldTransformFromEntity[attractiveFriend].Value.Position - transform.Position;
+            float dist = math.length(delta);
+            if (dist > 0f)
+            {
+                velocity.ValueRW.Value += delta * (config.teamAttraction * deltaTime / dist);
+            }
+
+            var repellentFriend = allies[random.NextInt(0, allies.Length)];
+            delta = LocalToWorldTransformFromEntity[repellentFriend].Value.Position - transform.Position;
+            dist = math.length(delta);
+            if (dist > 0f)
+            {
+                velocity.ValueRW.Value -= delta * (config.teamRepulsion * deltaTime / dist);
+            }
+        }
+
+
+    }
+
     public void OnUpdate(ref SystemState state)
     {
-        // var allies =  teamsOfBees[bee.team];
-        // var attractiveFriend = allies[random.NextInt(0, allies.Count)];
-        // var delta = attractiveFriend.position - transform.Position;
-        // var delta = float3.zero;
-        // float dist = math.length(delta);
-        // if (dist > 0f)
-        // {
-        //     v += delta * (config.teamAttraction * deltaTime / dist);
-        // }
-
-        // Bee repellentFriend = allies[random.NextInt(0, allies.Count)];
-        // delta = attractiveFriend.position - bee.position;
-        // dist = Mathf.Sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
-        // if (dist > 0f)
-        // {
-        //     bee.velocity -= delta * (teamRepulsion * deltaTime / dist);
-        // }
+        AlliesFriend(ref state, 0);
+        AlliesFriend(ref state, 1);
     }
 }
 
@@ -135,6 +163,30 @@ public partial struct BeeNewTargetSystem : ISystem
     {
     }
 
+    void TargetEnemyTeam(ref SystemState state, ref EntityCommandBuffer ECB, ref EntityQuery enemyQuery, int aliasTeam, int enemyTeam, float aggression)
+    {
+        enemyQuery.SetSharedComponentFilter(new Team { Value = enemyTeam });
+        using var es = enemyQuery.ToEntityArray(Allocator.Temp);
+        foreach (var (b, e) in SystemAPI.Query<BeeComponent>()
+                                                .WithNone<EnemyTarget, ResourceTarget>()
+                                                .WithEntityAccess()
+                                                .WithSharedComponentFilter(new Team { Value = aliasTeam }))
+        {
+            if (random.NextFloat() < aggression)
+            {
+                // 这里的es.Length > 0判定在现在的模式下可以提到循环外，此处为了和原始代码的对齐保持在这里
+                if (es.Length > 0)
+                {
+                    ECB.AddComponent(e, new EnemyTarget { Target = es[random.NextInt(0, es.Length)] });
+                }
+            }
+            else
+            {
+                //             bee.resourceTarget = ResourceSystem.TryGetRandomResource();
+            }
+        }
+    }
+
     public void OnUpdate(ref SystemState state)
     {
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
@@ -142,60 +194,8 @@ public partial struct BeeNewTargetSystem : ISystem
         var ecbSingleton = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
 
-
-        var aliasTeam = 0;
-        var enemyTeam = 1 - aliasTeam;
-
-        q.SetSharedComponentFilter(new Team { Value = enemyTeam });
-        var es = q.ToEntityArray(Allocator.Temp);
-        foreach (var (b, e) in SystemAPI.Query<BeeComponent>()
-                                                .WithNone<EnemyTarget, ResourceTarget>()
-                                                .WithEntityAccess()
-                                                .WithSharedComponentFilter(new Team { Value = aliasTeam }))
-        {
-            if (random.NextFloat() < config.aggression)
-            {
-                // 这里的es.Length > 0判定在现在的模式下可以提到循环外，此处为了和原始代码的对齐保持在这里
-                if (es.Length > 0)
-                {
-                    ecb.AddComponent(e, new EnemyTarget { Target = es[random.NextInt(0, es.Length)] });
-                }
-            }
-            else
-            {
-                //             bee.resourceTarget = ResourceSystem.TryGetRandomResource();
-            }
-        }
-        es.Dispose();
-
-
-
-        aliasTeam = 1;
-        enemyTeam = 1 - aliasTeam;
-
-
-        q.SetSharedComponentFilter(new Team { Value = enemyTeam });
-        var es2 = q.ToEntityArray(Allocator.Temp);
-        foreach (var (b, e) in SystemAPI.Query<BeeComponent>()
-                                                .WithNone<EnemyTarget, ResourceTarget>()
-                                                .WithEntityAccess()
-                                                .WithSharedComponentFilter(new Team { Value = aliasTeam }))
-        {
-            if (random.NextFloat() < config.aggression)
-            {
-                if (es2.Length > 0)
-                {
-                    ecb.AddComponent(e, new EnemyTarget { Target = es2[random.NextInt(0, es2.Length)] });
-                }
-            }
-            else
-            {
-                //             bee.resourceTarget = ResourceSystem.TryGetRandomResource();
-            }
-        }
-        es2.Dispose();
-
-
+        TargetEnemyTeam(ref state, ref ecb, ref q, 0, 1, config.aggression);
+        TargetEnemyTeam(ref state, ref ecb, ref q, 1, 0, config.aggression);
     }
 }
 
@@ -415,41 +415,6 @@ public partial struct BeeMoveSystem : ISystem
             smoothPosition.ValueRW.Position = updatedSmoothPosition;
             smoothPosition.ValueRW.Velocity = updatedSmoothPosition - oldPosition;
         }
-
-        // for (int i = 0; i < bees.Count; i++)
-        // {
-        //     float size = bees[i].size;
-        //     Vector3 scale = new Vector3(size, size, size);
-        //     if (bees[i].dead == false)
-        //     {
-        //         float stretch = Mathf.Max(1f, bees[i].velocity.magnitude * speedStretch);
-        //         scale.z *= stretch;
-        //         scale.x /= (stretch - 1f) / 5f + 1f;
-        //         scale.y /= (stretch - 1f) / 5f + 1f;
-        //     }
-        //     Quaternion rotation = Quaternion.identity;
-        //     if (bees[i].smoothDirection != Vector3.zero)
-        //     {
-        //         rotation = Quaternion.LookRotation(bees[i].smoothDirection);
-        //     }
-        //     // Color color = teamColors[bees[i].team];
-        //     var color = Color.red;
-        //     if (bees[i].dead)
-        //     {
-        //         color *= .75f;
-        //         scale *= Mathf.Sqrt(bees[i].deathTimer);
-        //     }
-        // beeMatrices[i / beesPerBatch][i % beesPerBatch] = Matrix4x4.TRS(bees[i].position, rotation, scale);
-        // beeColors[i / beesPerBatch][i % beesPerBatch] = color;
-        // }
-        // for (int i = 0; i <= activeBatch; i++)
-        // {
-        //     if (beeMatrices[i].Count > 0)
-        //     {
-        //         matProps.SetVectorArray("_Color", beeColors[i]);
-        //         Graphics.DrawMeshInstanced(beeMesh, 0, beeMaterial, beeMatrices[i], matProps);
-        //     }
-        // }
     }
 }
 
