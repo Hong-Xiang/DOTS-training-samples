@@ -46,7 +46,18 @@ public struct Grid : IComponentData
 
 struct StackHeight : IBufferElementData
 {
-    public int Value;
+    int Value; // should never access directly, following idiom of ECS samples / GridPath
+}
+
+struct NativeArray2DProxy<T> where T : unmanaged
+{
+    public int2 shape;
+    public NativeArray<T> data;
+    public T this[int idx, int idy]
+    {
+        get => data[idx * shape.y + idy];
+        set => data[idx * shape.y + idy] = value;
+    }
 }
 
 
@@ -68,7 +79,7 @@ partial struct FieldDiscritizationSystem : ISystem
     {
         var config = SystemAPI.GetSingleton<ResourceConfiguration>();
         var discritization = state.EntityManager.CreateEntity(discritizationType);
-        // var heightBuffer = state.EntityManager.AddBuffer<StackHeight>(discritization);
+        var heightBuffer = state.EntityManager.AddBuffer<StackHeight>(discritization);
         var grid = new Grid
         {
             Shape = math.int3(math.ceil(math.float3(Field.size) / config.resourceSize)),
@@ -76,7 +87,7 @@ partial struct FieldDiscritizationSystem : ISystem
             minPosition = -math.float3(Field.size) * .5f,
         };
         state.EntityManager.SetComponentData(discritization, grid);
-        // heightBuffer.Resize(grid.Shape.x * grid.Shape.z, NativeArrayOptions.ClearMemory);
+        heightBuffer.Resize(grid.Shape.x * grid.Shape.z, NativeArrayOptions.ClearMemory);
         state.Enabled = false;
     }
 }

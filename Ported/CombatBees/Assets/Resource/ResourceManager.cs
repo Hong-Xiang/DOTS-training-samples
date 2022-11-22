@@ -19,31 +19,9 @@ struct ResourceConfiguration : IComponentData
     public int beesPerResource;
     public int startResourceCount;
     public int maxResourceCount;
-
 }
 
-struct Array2D<T> : IDisposable where T : struct
-{
-    public int2 shape;
-    public NativeArray<T> data;
 
-    public Array2D(int2 shape)
-    {
-        this.shape = shape;
-        data = new NativeArray<T>(shape.x * shape.y, Allocator.Persistent);
-    }
-
-    public T this[int idx, int idy]
-    {
-        get => data[idx * shape.y + idy];
-        set => data[idx * shape.y + idy] = value;
-    }
-
-    public void Dispose()
-    {
-        data.Dispose();
-    }
-}
 
 partial struct ResourceSpawnSystem : ISystem
 {
@@ -140,6 +118,8 @@ partial struct ResourceSpawnBeeSystem : ISystem
     }
 }
 
+
+
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
 partial struct ResourceFollowHolderSystem : ISystem
 {
@@ -172,7 +152,7 @@ partial struct ResourceFollowHolderSystem : ISystem
         foreach (var (resource, holder, transform, velocity, e) in SystemAPI.Query<ResourceComponent, ResourceHolder, TransformAspect, RefRW<Velocity>>().WithEntityAccess())
         {
 
-            if ((!SystemAPI.Exists(holder.Holder)) || SystemAPI.HasComponent<Death>(holder.Holder))
+            if ((!SystemAPI.Exists(holder.Holder)) || SystemAPI.HasComponent<Dying>(holder.Holder))
             {
                 ecb.RemoveComponent<ResourceHolder>(e);
             }
@@ -187,6 +167,28 @@ partial struct ResourceFollowHolderSystem : ISystem
         }
     }
 }
+
+
+struct ResourceStackHoldLogic
+{
+    public ComponentLookup<ResourceHolder> ResourceHolderFromEntity;
+
+    void OnUpdate(ref SystemState state)
+    {
+        ResourceHolderFromEntity.Update(ref state);
+    }
+
+    public bool HasHolder(in Entity resourceEntity)
+    {
+        return ResourceHolderFromEntity.HasComponent(resourceEntity);
+    }
+    public bool IsGrabable(in Entity resourceEntity)
+    {
+        return false;
+    }
+}
+
+
 
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
 partial struct ResourceFallenSystem : ISystem
@@ -205,6 +207,14 @@ partial struct ResourceFallenSystem : ISystem
         var ecbSingleton = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>();
         var config = SystemAPI.GetSingleton<ResourceConfiguration>();
         var grid = SystemAPI.GetSingleton<Grid>();
+        var stackHeight = new NativeArray2DProxy<int>
+        {
+            shape = math.int2(grid.Shape.x, grid.Shape.z),
+            data = SystemAPI.GetSingletonBuffer<StackHeight>().Reinterpret<int>().AsNativeArray()
+        };
+
+
+
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
         // if (resource.holder == null && resource.stacked == false)
         foreach (var (resource, transform, velocity, e) in SystemAPI.Query<
@@ -221,10 +231,10 @@ partial struct ResourceFallenSystem : ISystem
             position += v * SystemAPI.Time.DeltaTime;
 
 
-            // GetGridIndex(resource.position, out resource.gridX, out resource.gridY);
-            // float floorY = GetStackPos(resource.gridX, resource.gridY, stackHeights[resource.gridX, resource.gridY]).y;
-            float floorY = grid.bottom;
+            var idx = grid.PositionToIndex(position);
 
+            // 当resource比较多的时候，可能同时存在多个resource在同一个stack上，此时下面的floorY判断逻辑会出问题
+            float floorY = grid.bottom + stackHeight[idx.x, idx.z] * config.resourceSize;
             for (int j = 0; j < 3; j++)
             {
                 if (math.abs(position[j]) > Field.size[j] * .5f)
@@ -235,7 +245,7 @@ partial struct ResourceFallenSystem : ISystem
                     v[(j + 2) % 3] *= .8f;
                 }
             }
-            if (position.y < floorY)
+            if (position.y <= floorY)
             {
                 position.y = floorY;
                 if (math.abs(position.x) > Field.size.x * .4f)
@@ -247,10 +257,9 @@ partial struct ResourceFallenSystem : ISystem
                     // resource.stacked = true;
                     ecb.AddComponent(e, new Stacked
                     {
-                        Index = 0 // stackHeights[resource.gridX, resource.gridY]
+                        Index = stackHeight[idx.x, idx.z]
                     });
-
-                    // stackHeights[resource.gridX, resource.gridY]++;
+                    stackHeight[idx.x, idx.z]++;
                     // DeleteResource(resource);
                 }
             }
@@ -308,7 +317,6 @@ partial struct ResourceSystem : ISystem
 
 
 
-    Array2D<int> stackHeights;
 
     float spawnTimer;
 
@@ -338,8 +346,9 @@ partial struct ResourceSystem : ISystem
 
     public static bool IsTopOfStack(Resource resource)
     {
-        int stackHeight = instance.stackHeights[resource.gridX, resource.gridY];
-        return resource.stackIndex == stackHeight - 1;
+        return true;
+        // int stackHeight = instance.stackHeights[resource.gridX, resource.gridY];
+        // return resource.stackIndex == stackHeight - 1;
     }
 
     Vector3 GetStackPos(int x, int y, int height)
@@ -370,7 +379,7 @@ partial struct ResourceSystem : ISystem
     {
         resource.holder = bee;
         resource.stacked = false;
-        instance.stackHeights[resource.gridX, resource.gridY]--;
+        // instance.stackHeights[resource.gridX, resource.gridY]--;
     }
 
 
