@@ -19,6 +19,11 @@ public struct BeeComponent : IComponentData
     public int index;
 }
 
+public struct BeeSpawn : IComponentData
+{
+    public float3 Position;
+    public int team;
+}
 
 
 public struct SmoothPositionVelociy : IComponentData
@@ -446,6 +451,7 @@ public partial struct BeeSpawnSystem : ISystem
     public void OnCreate(ref SystemState state)
     {
         random = Unity.Mathematics.Random.CreateFromIndex(233);
+        state.EntityManager.CreateArchetype(typeof(BeeSpawn));
     }
 
     public void OnDestroy(ref SystemState state)
