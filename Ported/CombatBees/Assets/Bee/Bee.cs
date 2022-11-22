@@ -351,7 +351,7 @@ public partial struct BeeResourceTargetSystem : ISystem
     public void OnCreate(ref SystemState state)
     {
         random = new Unity.Mathematics.Random(233);
-        state.Enabled = false;
+        ResourceHolderFromEntity = state.GetComponentLookup<ResourceHolder>();
     }
 
     public void OnDestroy(ref SystemState state)
@@ -371,38 +371,42 @@ public partial struct BeeResourceTargetSystem : ISystem
                                         .WithNone<EnemyTarget>()
                                         .WithEntityAccess())
         {
-            ecb.RemoveComponent<ResourceTarget>(beeEntity);
-            return;
             // Resource resource = bee.resourceTarget;
             Entity resourceEntity = resourceTarget.ResourceEntity;
             // if (resource.holder == null)
             if (!ResourceHolderFromEntity.HasComponent(resourceEntity))
             {
                 // if (resource.dead)
-                if (false)
+                if (!SystemAPI.Exists(resourceEntity))
                 {
                     //     bee.resourceTarget = null;
                     ecb.RemoveComponent<ResourceTarget>(beeEntity);
                 }
-                // else if (resourceEntity.stacked && ResourceSystem.IsTopOfStack(resourceEntity) == false)
-                else if (false)
-                {
-                    // bee.resourceTarget = null;
-                    ecb.RemoveComponent<ResourceTarget>(beeEntity);
-                }
                 else
                 {
-                    // delta = resourceEntity.position - bee.position;
-                    // float sqrDist = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
-                    // if (sqrDist > grabDistance * grabDistance)
-                    // {
-                    //     bee.velocity += delta * (chaseForce * deltaTime / Mathf.Sqrt(sqrDist));
-                    // }
-                    // else if (resourceEntity.stacked)
-                    // {
-                    //     ResourceSystem.GrabResource(bee, resourceEntity);
-                    // }
+                    // else if (resourceEntity.stacked && ResourceSystem.IsTopOfStack(resourceEntity) == false)
+                    if (false)
+                    {
+                        // bee.resourceTarget = null;
+                        ecb.RemoveComponent<ResourceTarget>(beeEntity);
+                    }
+                    else
+                    {
+                        var resourcePosition = SystemAPI.GetComponent<LocalToWorldTransform>(resourceEntity).Value.Position;
+                        var delta = resourcePosition - transform.Position;
+                        float dist = math.length(delta);
+                        if (dist > config.grabDistance)
+                        {
+                            velocity.ValueRW.Value += (delta / dist) * (config.chaseForce * SystemAPI.Time.DeltaTime);
+                        }
+                        // else if (resourceEntity.stacked)
+                        else if (false)
+                        {
+                            // ResourceSystem.GrabResource(bee, resourceEntity);
+                        }
+                    }
                 }
+
             }
             else
             {
@@ -446,6 +450,7 @@ public partial struct BeeHoldingResourceTowardsHiveSystem : ISystem
     {
         foreach (var (bee, transform, velocity, beeEntity) in SystemAPI.Query<BeeComponent, TransformAspect, RefRW<Velocity>>()
                                        .WithNone<Dying>()
+                                       .WithAll<HoldingResource>()
                                        .WithEntityAccess())
         {
             var config = SystemAPI.GetSingleton<BeeConfiguration>();
