@@ -10,6 +10,7 @@ partial struct ResourceComponent : IComponentData
 partial struct ResourceHolder : IComponentData
 {
     public Entity Holder;
+    public int Team;
 }
 
 partial struct Stacked : IComponentData

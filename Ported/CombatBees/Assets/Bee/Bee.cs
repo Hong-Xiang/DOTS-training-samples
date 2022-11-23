@@ -59,9 +59,14 @@ public partial struct Dying : IComponentData
     public float Timer;
 }
 
+public partial struct Attacking : IComponentData
+{
+}
+
 public partial struct EnemyTarget : IComponentData
 {
     public Entity BeeEntity;
+    public float3 Velocity;
 }
 
 public partial struct ResourceTarget : IComponentData
@@ -99,8 +104,6 @@ partial struct BeeRandomWalkJob : IJobEntity
 [BurstCompile]
 public partial struct BeeRandomWalkSystem : ISystem
 {
-    public Unity.Mathematics.Random random;
-
     [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
@@ -117,7 +120,6 @@ public partial struct BeeRandomWalkSystem : ISystem
     [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
-        random = Unity.Mathematics.Random.CreateFromIndex(42);
     }
 
     [BurstCompile]
@@ -129,18 +131,20 @@ public partial struct BeeRandomWalkSystem : ISystem
 
 partial struct BeeAlliesJob : IJobEntity
 {
+    [DeallocateOnJobCompletion]
     [ReadOnly] public NativeArray<Entity> allies;
-    [ReadOnly] public Unity.Mathematics.Random random;
     [ReadOnly] public ComponentLookup<LocalToWorldTransform> LocalToWorldTransformFromEntity;
     [ReadOnly] public BeeConfiguration config;
     public float deltaTime;
-    void Execute(ref Velocity velocity, in TransformAspect transform)
+    void Execute(ref Velocity velocity, ref BeeRandom random, in TransformAspect transform)
     {
+
+        //     // 原始代码中没有进行这个检查，原则上算是一个bug，只不过这个不会出现数组访问越界，但是会除0
         if (allies.Length <= 1)
         {
             return;
         }
-        var attractiveFriend = allies[random.NextInt(0, allies.Length)];
+        var attractiveFriend = allies[random.random.NextInt(0, allies.Length)];
         var delta = LocalToWorldTransformFromEntity[attractiveFriend].Value.Position - transform.Position;
         float dist = math.length(delta);
         if (dist > 0f)
@@ -148,7 +152,7 @@ partial struct BeeAlliesJob : IJobEntity
             velocity.Value += delta * (config.teamAttraction * deltaTime / dist);
         }
 
-        var repellentFriend = allies[random.NextInt(0, allies.Length)];
+        var repellentFriend = allies[random.random.NextInt(0, allies.Length)];
         delta = LocalToWorldTransformFromEntity[repellentFriend].Value.Position - transform.Position;
         dist = math.length(delta);
         if (dist > 0f)
@@ -190,44 +194,15 @@ public partial struct BeeAlliesSystem : ISystem
         var deltaTime = SystemAPI.Time.DeltaTime;
         var q = SystemAPI.QueryBuilder().WithAll<BeeComponent, Team>().Build();
         q.SetSharedComponentFilter(new Team { Value = team });
-        using var allies = q.ToEntityArray(Allocator.TempJob);
+        var allies = q.ToEntityArray(Allocator.TempJob);
         LocalToWorldTransformFromEntity.Update(ref state);
-        var j = new BeeAlliesJob
+        state.Dependency = new BeeAlliesJob
         {
             allies = allies,
-            random = random,
             LocalToWorldTransformFromEntity = LocalToWorldTransformFromEntity,
             config = config,
             deltaTime = deltaTime
         }.ScheduleParallel(state.Dependency);
-        state.Dependency = j;
-        j.Complete();
-
-        // foreach (var (bee, transform, velocity) in SystemAPI.Query<BeeComponent, TransformAspect, RefRW<Velocity>>().WithSharedComponentFilter(new Team { Value = team }))
-        // {
-        //     // 原始代码中没有进行这个检查，原则上算是一个bug，只不过这个不会出现数组访问越界，但是会除0
-        //     if (allies.Length <= 1)
-        //     {
-        //         continue;
-        //     }
-        //     var attractiveFriend = allies[random.NextInt(0, allies.Length)];
-        //     var delta = LocalToWorldTransformFromEntity[attractiveFriend].Value.Position - transform.Position;
-        //     float dist = math.length(delta);
-        //     if (dist > 0f)
-        //     {
-        //         velocity.ValueRW.Value += delta * (config.teamAttraction * deltaTime / dist);
-        //     }
-
-        //     var repellentFriend = allies[random.NextInt(0, allies.Length)];
-        //     delta = LocalToWorldTransformFromEntity[repellentFriend].Value.Position - transform.Position;
-        //     dist = math.length(delta);
-        //     if (dist > 0f)
-        //     {
-        //         velocity.ValueRW.Value -= delta * (config.teamRepulsion * deltaTime / dist);
-        //     }
-        // }
-
-
     }
 
     public void OnUpdate(ref SystemState state)
@@ -333,6 +308,112 @@ public partial struct BeeNewTargetSystem : ISystem
     }
 }
 
+partial struct EnemyTargetVelocityUpdateJob : IJobEntity
+{
+    [ReadOnly] public ComponentLookup<Velocity> VelocityFromEntity;
+    void Execute(ref EnemyTarget target)
+    {
+        if (VelocityFromEntity.HasComponent(target.BeeEntity))
+        {
+            target.Velocity = VelocityFromEntity[target.BeeEntity].Value;
+        }
+    }
+}
+
+
+[UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
+[UpdateBefore(typeof(BeeEnemyTargetSystem))]
+partial struct BeeEnemyTargetVelocityUpdateSystem : ISystem
+{
+    ComponentLookup<Velocity> VelocityFromEntity;
+    public void OnCreate(ref SystemState state)
+    {
+        VelocityFromEntity = state.GetComponentLookup<Velocity>(true);
+    }
+
+    public void OnDestroy(ref SystemState state)
+    {
+    }
+
+    public void OnUpdate(ref SystemState state)
+    {
+        VelocityFromEntity.Update(ref state);
+
+        state.Dependency = new EnemyTargetVelocityUpdateJob
+        {
+            VelocityFromEntity = VelocityFromEntity
+        }.ScheduleParallel(state.Dependency);
+    }
+}
+
+[WithNone(typeof(Dying))]
+
+partial struct BeeEnemyTargetJob : IJobEntity
+{
+    [ReadOnly] public ComponentLookup<LocalToWorldTransform> LocalToWorldTransformFromEntity;
+    [ReadOnly] public ComponentLookup<Dying> DeathFromEntity;
+    [ReadOnly] public ComponentLookup<HoldingResource> HoldingResourceFromEntity;
+    [ReadOnly] public ComponentLookup<BeeComponent> BeeComponentFromEntity;
+
+    [ReadOnly] public BeeConfiguration config;
+    public EntityCommandBuffer.ParallelWriter ecb;
+    public float deltaTime;
+
+    void Execute(ref BeeRandom random,
+                 //  ref BeeComponent bee,
+                 ref Velocity velocity,
+                 in TransformAspect transform,
+                 in EnemyTarget target,
+                 in Entity beeEntity,
+                 [EntityInQueryIndex] int inQueryIndex)
+    {
+        // 备注：大问题 - ECS没有引用完整性的保证，对于可能被Destory的Entity，引用的地方会有运行时异常
+        // 比如如下的SystemAPI.Exists如果不检查，LocalToWorldTransformFromEntity就运行时异常了
+        // 方案1：添加防御性检查，但是其实会让系统留下不正确的状态，即破坏了一致性，认为不是好方案
+        // 方案2：在Destory Entity的时候删除所有引用，保证系统的一致性
+        // 由于没有反向index，方案2需要完整遍历所有Entity，性能不合适，因此这里用了方案1
+        if ((!BeeComponentFromEntity.HasComponent(target.BeeEntity)) || DeathFromEntity.HasComponent(target.BeeEntity))
+        {
+            ecb.RemoveComponent<EnemyTarget>(inQueryIndex, beeEntity);
+        }
+        else
+        {
+            var enemyPosition = LocalToWorldTransformFromEntity[target.BeeEntity].Value.Position;
+            var delta = enemyPosition - transform.Position;
+            var distance = math.length(delta);
+            var normalizedDelta = delta / distance;
+            if (distance > config.attackDistance)
+            {
+                velocity.Value += normalizedDelta * (config.chaseForce * deltaTime);
+            }
+            else
+            {
+                // bee.isAttacking = true;
+                velocity.Value += normalizedDelta * (config.attackForce * deltaTime);
+                if (distance < config.hitDistance)
+                {
+                    // ParticleManager.SpawnParticle(bee.enemyTarget.position, ParticleType.Blood, bee.velocity * .35f, 2f, 6);
+                    ecb.AddComponent(inQueryIndex, target.BeeEntity, new Dying { Timer = 1f });
+
+                    ecb.SetComponent(inQueryIndex, target.BeeEntity, new Velocity
+                    {
+                        Value = target.Velocity * .5f
+                    });
+
+                    ecb.RemoveComponent<EnemyTarget>(inQueryIndex, beeEntity);
+                    if (HoldingResourceFromEntity.HasComponent(target.BeeEntity))
+                    {
+                        var resourceEntity = HoldingResourceFromEntity[target.BeeEntity].ResourceEntity;
+                        ecb.RemoveComponent<HoldingResource>(inQueryIndex, target.BeeEntity);
+                        ecb.RemoveComponent<ResourceHolder>(inQueryIndex, resourceEntity);
+                    }
+                }
+            }
+        }
+
+    }
+
+}
 
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
 [BurstCompile]
@@ -340,8 +421,10 @@ public partial struct BeeEnemyTargetSystem : ISystem
 {
     Unity.Mathematics.Random random;
     ComponentLookup<LocalToWorldTransform> LocalToWorldTransformFromEntity;
-    ComponentLookup<Velocity> VelocityFromEntity;
     ComponentLookup<Dying> DeathFromEntity;
+    ComponentLookup<HoldingResource> HoldingResourceFromEntity;
+
+    ComponentLookup<BeeComponent> BeeComponentFromEntity;
 
 
     [BurstCompile]
@@ -349,8 +432,9 @@ public partial struct BeeEnemyTargetSystem : ISystem
     {
         random = Unity.Mathematics.Random.CreateFromIndex(233);
         LocalToWorldTransformFromEntity = state.GetComponentLookup<LocalToWorldTransform>(true);
-        VelocityFromEntity = state.GetComponentLookup<Velocity>(true);
         DeathFromEntity = state.GetComponentLookup<Dying>(true);
+        HoldingResourceFromEntity = state.GetComponentLookup<HoldingResource>(true);
+        BeeComponentFromEntity = state.GetComponentLookup<BeeComponent>(true);
     }
 
     [BurstCompile]
@@ -366,61 +450,172 @@ public partial struct BeeEnemyTargetSystem : ISystem
         var ecbSingleton = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
         LocalToWorldTransformFromEntity.Update(ref state);
-        VelocityFromEntity.Update(ref state);
         DeathFromEntity.Update(ref state);
+        HoldingResourceFromEntity.Update(ref state);
+        BeeComponentFromEntity.Update(ref state);
 
         var deltaTime = SystemAPI.Time.DeltaTime;
 
-
-
-        foreach (var (bee, target, transform, velocity, e) in SystemAPI.Query<RefRW<BeeComponent>, EnemyTarget, TransformAspect, RefRW<Velocity>>()
-                                                                        .WithNone<Dying>()
-                                                                        .WithEntityAccess())
+        state.Dependency = new BeeEnemyTargetJob
         {
-            // 备注：大问题 - ECS没有引用完整性的保证，对于可能被Destory的Entity，引用的地方会有运行时异常
-            // 比如如下的SystemAPI.Exists如果不检查，LocalToWorldTransformFromEntity就运行时异常了
-            // 方案1：添加防御性检查，但是其实会让系统留下不正确的状态，即破坏了一致性，认为不是好方案
-            // 方案2：在Destory Entity的时候删除所有引用，保证系统的一致性
-            // 由于没有反向index，方案2需要完整遍历所有Entity，性能不合适，因此这里用了方案1
-            if ((!SystemAPI.Exists(target.BeeEntity)) || DeathFromEntity.HasComponent(target.BeeEntity))
+            LocalToWorldTransformFromEntity = LocalToWorldTransformFromEntity,
+            DeathFromEntity = DeathFromEntity,
+            HoldingResourceFromEntity = HoldingResourceFromEntity,
+            BeeComponentFromEntity = BeeComponentFromEntity,
+            config = config,
+            ecb = ecb.AsParallelWriter(),
+            deltaTime = deltaTime,
+        }.ScheduleParallel(state.Dependency);
+
+
+
+        // foreach (var (bee, target, transform, velocity, e) in SystemAPI.Query<RefRW<BeeComponent>, EnemyTarget, TransformAspect, RefRW<Velocity>>()
+        //                                                                 .WithNone<Dying>()
+        //                                                                 .WithEntityAccess())
+        // {
+        //     // 备注：大问题 - ECS没有引用完整性的保证，对于可能被Destory的Entity，引用的地方会有运行时异常
+        //     // 比如如下的SystemAPI.Exists如果不检查，LocalToWorldTransformFromEntity就运行时异常了
+        //     // 方案1：添加防御性检查，但是其实会让系统留下不正确的状态，即破坏了一致性，认为不是好方案
+        //     // 方案2：在Destory Entity的时候删除所有引用，保证系统的一致性
+        //     // 由于没有反向index，方案2需要完整遍历所有Entity，性能不合适，因此这里用了方案1
+        //     if ((!SystemAPI.Exists(target.BeeEntity)) || DeathFromEntity.HasComponent(target.BeeEntity))
+        //     {
+        //         ecb.RemoveComponent<EnemyTarget>(e);
+        //     }
+        //     else
+        //     {
+        //         var enemyPosition = LocalToWorldTransformFromEntity[target.BeeEntity].Value.Position;
+        //         var delta = enemyPosition - transform.Position;
+        //         var distance = math.length(delta);
+        //         var normalizedDelta = delta / distance;
+        //         if (distance > config.attackDistance)
+        //         {
+        //             velocity.ValueRW.Value += normalizedDelta * (config.chaseForce * deltaTime);
+        //         }
+        //         else
+        //         {
+        //             bee.ValueRW.isAttacking = true;
+        //             velocity.ValueRW.Value += normalizedDelta * (config.attackForce * deltaTime);
+        //             if (distance < config.hitDistance)
+        //             {
+        //                 // ParticleManager.SpawnParticle(bee.enemyTarget.position, ParticleType.Blood, bee.velocity * .35f, 2f, 6);
+        //                 ecb.AddComponent(target.BeeEntity, new Dying { Timer = 1f });
+
+        //                 ecb.SetComponent(target.BeeEntity, new Velocity
+        //                 {
+        //                     Value = VelocityFromEntity[target.BeeEntity].Value * .5f
+        //                 });
+
+        //                 ecb.RemoveComponent<EnemyTarget>(e);
+        //                 if (SystemAPI.HasComponent<HoldingResource>(target.BeeEntity))
+        //                 {
+        //                     var resourceEntity = SystemAPI.GetComponent<HoldingResource>(target.BeeEntity).ResourceEntity;
+        //                     ecb.RemoveComponent<HoldingResource>(target.BeeEntity);
+        //                     ecb.RemoveComponent<ResourceHolder>(resourceEntity);
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
+    }
+}
+
+[WithNone(typeof(Dying))]
+[WithNone(typeof(EnemyTarget))]
+partial struct BeeResourceTargetJob : IJobEntity
+{
+    [ReadOnly] public BeeConfiguration config;
+    [ReadOnly] public ComponentLookup<ResourceHolder> ResourceHolderFromEntity;
+    [ReadOnly] public ComponentLookup<LocalToWorldTransform> LocalToWorldTransformFromEntity;
+    [ReadOnly] public ComponentLookup<Stacked> StackedFromEntity;
+    [ReadOnly] public ComponentLookup<ResourceComponent> ResourceComponentFromEntity;
+    // public EntityManager EntityManager;
+    public EntityCommandBuffer.ParallelWriter ecb;
+    public float DeltaTime;
+
+
+    void Execute(
+         ref Velocity velocity,
+         in ResourceTarget resourceTarget,
+         in Team selfTeam,
+         in TransformAspect transform,
+         in Entity beeEntity,
+         in BeeComponent bee,
+         [EntityInQueryIndex] int inQueryIndex)
+    {
+        // Resource resource = bee.resourceTarget;
+        Entity resourceEntity = resourceTarget.ResourceEntity;
+        // if (resource.holder == null)
+        if (!ResourceHolderFromEntity.HasComponent(resourceEntity))
+        {
+            // if (resource.dead)
+            if (!ResourceComponentFromEntity.HasComponent(resourceEntity))
             {
-                ecb.RemoveComponent<EnemyTarget>(e);
+                //     bee.resourceTarget = null;
+                ecb.RemoveComponent<ResourceTarget>(inQueryIndex, beeEntity);
             }
             else
             {
-                var enemyPosition = LocalToWorldTransformFromEntity[target.BeeEntity].Value.Position;
-                var delta = enemyPosition - transform.Position;
-                var distance = math.length(delta);
-                var normalizedDelta = delta / distance;
-                if (distance > config.attackDistance)
+                // else if (resourceEntity.stacked && ResourceSystem.IsTopOfStack(resourceEntity) == false)
+                if (false)
                 {
-                    velocity.ValueRW.Value += normalizedDelta * (config.chaseForce * deltaTime);
+                    // bee.resourceTarget = null;
+                    ecb.RemoveComponent<ResourceTarget>(inQueryIndex, beeEntity);
                 }
                 else
                 {
-                    bee.ValueRW.isAttacking = true;
-                    velocity.ValueRW.Value += normalizedDelta * (config.attackForce * deltaTime);
-                    if (distance < config.hitDistance)
+                    var resourcePosition = LocalToWorldTransformFromEntity[resourceEntity].Value.Position;
+                    var delta = resourcePosition - transform.Position;
+                    float dist = math.length(delta);
+                    if (dist > config.grabDistance)
                     {
-                        // ParticleManager.SpawnParticle(bee.enemyTarget.position, ParticleType.Blood, bee.velocity * .35f, 2f, 6);
-                        ecb.AddComponent(target.BeeEntity, new Dying { Timer = 1f });
-
-                        ecb.SetComponent(target.BeeEntity, new Velocity
+                        velocity.Value += (delta / dist) * (config.chaseForce * DeltaTime);
+                    }
+                    // else if (resourceEntity.stacked)
+                    else if (StackedFromEntity.HasComponent(resourceEntity))
+                    {
+                        ecb.AddComponent(inQueryIndex, resourceEntity, new ResourceHolder
                         {
-                            Value = VelocityFromEntity[target.BeeEntity].Value * .5f
+                            Holder = beeEntity,
+                            Team = selfTeam.Value
                         });
-
-                        ecb.RemoveComponent<EnemyTarget>(e);
-                        if (SystemAPI.HasComponent<HoldingResource>(target.BeeEntity))
+                        ecb.RemoveComponent<Stacked>(inQueryIndex, resourceEntity);
+                        ecb.AddComponent(inQueryIndex, beeEntity, new HoldingResource
                         {
-                            var resourceEntity = SystemAPI.GetComponent<HoldingResource>(target.BeeEntity).ResourceEntity;
-                            ecb.RemoveComponent<HoldingResource>(target.BeeEntity);
-                            ecb.RemoveComponent<ResourceHolder>(resourceEntity);
-                        }
+                            ResourceEntity = resourceEntity
+                        });
+                        ecb.RemoveComponent<ResourceTarget>(inQueryIndex, beeEntity);
+                        // ResourceSystem.GrabResource(bee, resourceEntity);
                     }
                 }
             }
+
         }
+        else
+        {
+            ResourceHolder resourceHolder = ResourceHolderFromEntity[resourceEntity];
+            if (resourceHolder.Holder == beeEntity)
+            {
+
+            }
+            else
+            {
+                // 无法在ParallelJob下直接执行如下操作，会提示EntityManager会被修改
+                // var resourceHolderTeam = EntityManager.GetSharedComponent<Team>(resourceHolderEntity).Value;
+                var resourceHolderTeam = resourceHolder.Team;
+                if (resourceHolderTeam != selfTeam.Value)
+                {
+                    // TODO: 如果已经存在EnemyTargetComponent会运行时异常吗
+                    ecb.AddComponent(inQueryIndex, beeEntity, new EnemyTarget { BeeEntity = resourceHolder.Holder });
+                }
+                else
+                {
+                    // bee.resourceTarget = null;
+                    ecb.RemoveComponent<ResourceTarget>(inQueryIndex, beeEntity);
+                }
+            }
+        }
+
     }
 }
 
@@ -431,13 +626,18 @@ public partial struct BeeResourceTargetSystem : ISystem
     Unity.Mathematics.Random random;
 
     ComponentLookup<ResourceHolder> ResourceHolderFromEntity;
-
+    ComponentLookup<LocalToWorldTransform> LocalToWorldTransformFromEntity;
+    ComponentLookup<Stacked> StackedFromEntity;
+    ComponentLookup<ResourceComponent> ResourceComponentFromEntity;
 
     [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
         random = new Unity.Mathematics.Random(233);
-        ResourceHolderFromEntity = state.GetComponentLookup<ResourceHolder>();
+        ResourceHolderFromEntity = state.GetComponentLookup<ResourceHolder>(true);
+        LocalToWorldTransformFromEntity = state.GetComponentLookup<LocalToWorldTransform>(true);
+        StackedFromEntity = state.GetComponentLookup<Stacked>(true);
+        ResourceComponentFromEntity = state.GetComponentLookup<ResourceComponent>(true);
     }
 
     [BurstCompile]
@@ -452,84 +652,102 @@ public partial struct BeeResourceTargetSystem : ISystem
         var ecb = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>()
                            .CreateCommandBuffer(state.WorldUnmanaged);
         ResourceHolderFromEntity.Update(ref state);
+        LocalToWorldTransformFromEntity.Update(ref state);
+        StackedFromEntity.Update(ref state);
+        ResourceComponentFromEntity.Update(ref state);
+        var deltaTime = SystemAPI.Time.DeltaTime;
 
 
-        foreach (var (bee, resourceTarget, selfTeam, transform, velocity, beeEntity) in SystemAPI.Query<BeeComponent, ResourceTarget, Team, TransformAspect, RefRW<Velocity>>()
-                                        .WithNone<Dying>()
-                                        .WithNone<EnemyTarget>()
-                                        .WithEntityAccess())
+        state.Dependency = new BeeResourceTargetJob
         {
-            // Resource resource = bee.resourceTarget;
-            Entity resourceEntity = resourceTarget.ResourceEntity;
-            // if (resource.holder == null)
-            if (!ResourceHolderFromEntity.HasComponent(resourceEntity))
-            {
-                // if (resource.dead)
-                if (!SystemAPI.Exists(resourceEntity))
-                {
-                    //     bee.resourceTarget = null;
-                    ecb.RemoveComponent<ResourceTarget>(beeEntity);
-                }
-                else
-                {
-                    // else if (resourceEntity.stacked && ResourceSystem.IsTopOfStack(resourceEntity) == false)
-                    if (false)
-                    {
-                        // bee.resourceTarget = null;
-                        ecb.RemoveComponent<ResourceTarget>(beeEntity);
-                    }
-                    else
-                    {
-                        var resourcePosition = SystemAPI.GetComponent<LocalToWorldTransform>(resourceEntity).Value.Position;
-                        var delta = resourcePosition - transform.Position;
-                        float dist = math.length(delta);
-                        if (dist > config.grabDistance)
-                        {
-                            velocity.ValueRW.Value += (delta / dist) * (config.chaseForce * SystemAPI.Time.DeltaTime);
-                        }
-                        // else if (resourceEntity.stacked)
-                        else if (SystemAPI.HasComponent<Stacked>(resourceEntity))
-                        {
-                            ecb.AddComponent(resourceEntity, new ResourceHolder
-                            {
-                                Holder = beeEntity
-                            });
-                            ecb.RemoveComponent<Stacked>(resourceEntity);
-                            ecb.AddComponent(beeEntity, new HoldingResource
-                            {
-                                ResourceEntity = resourceEntity
-                            });
-                            ecb.RemoveComponent<ResourceTarget>(beeEntity);
-                            // ResourceSystem.GrabResource(bee, resourceEntity);
-                        }
-                    }
-                }
 
-            }
-            else
-            {
-                Entity resourceHolderEntity = ResourceHolderFromEntity[resourceEntity].Holder;
-                if (resourceHolderEntity == beeEntity)
-                {
+            config = config,
+            ResourceHolderFromEntity = ResourceHolderFromEntity,
+            LocalToWorldTransformFromEntity = LocalToWorldTransformFromEntity,
+            StackedFromEntity = StackedFromEntity,
+            ResourceComponentFromEntity = ResourceComponentFromEntity,
+            // EntityManager = state.EntityManager,
+            ecb = ecb.AsParallelWriter(),
+            DeltaTime = deltaTime
 
-                }
-                else
-                {
-                    var resourceHolderTeam = state.EntityManager.GetSharedComponent<Team>(resourceHolderEntity).Value;
-                    if (resourceHolderTeam != selfTeam.Value)
-                    {
-                        // TODO: 如果已经存在EnemyTargetComponent会运行时异常吗
-                        ecb.AddComponent(beeEntity, new EnemyTarget { BeeEntity = resourceHolderEntity });
-                    }
-                    else
-                    {
-                        // bee.resourceTarget = null;
-                        ecb.RemoveComponent<ResourceTarget>(beeEntity);
-                    }
-                }
-            }
+        }.ScheduleParallel(state.Dependency);
 
-        }
+        // foreach (var (bee, resourceTarget, selfTeam, transform, velocity, beeEntity) in SystemAPI.Query<BeeComponent, ResourceTarget, Team, TransformAspect, RefRW<Velocity>>()
+        //                                 .WithNone<Dying>()
+        //                                 .WithNone<EnemyTarget>()
+        //                                 .WithEntityAccess())
+        // {
+        //     // Resource resource = bee.resourceTarget;
+        //     Entity resourceEntity = resourceTarget.ResourceEntity;
+        //     // if (resource.holder == null)
+        //     if (!ResourceHolderFromEntity.HasComponent(resourceEntity))
+        //     {
+        //         // if (resource.dead)
+        //         if (!SystemAPI.Exists(resourceEntity))
+        //         {
+        //             //     bee.resourceTarget = null;
+        //             ecb.RemoveComponent<ResourceTarget>(beeEntity);
+        //         }
+        //         else
+        //         {
+        //             // else if (resourceEntity.stacked && ResourceSystem.IsTopOfStack(resourceEntity) == false)
+        //             if (false)
+        //             {
+        //                 // bee.resourceTarget = null;
+        //                 ecb.RemoveComponent<ResourceTarget>(beeEntity);
+        //             }
+        //             else
+        //             {
+        //                 var resourcePosition = SystemAPI.GetComponent<LocalToWorldTransform>(resourceEntity).Value.Position;
+        //                 var delta = resourcePosition - transform.Position;
+        //                 float dist = math.length(delta);
+        //                 if (dist > config.grabDistance)
+        //                 {
+        //                     velocity.ValueRW.Value += (delta / dist) * (config.chaseForce * SystemAPI.Time.DeltaTime);
+        //                 }
+        //                 // else if (resourceEntity.stacked)
+        //                 else if (SystemAPI.HasComponent<Stacked>(resourceEntity))
+        //                 {
+        //                     ecb.AddComponent(resourceEntity, new ResourceHolder
+        //                     {
+        //                         Holder = beeEntity
+        //                     });
+        //                     ecb.RemoveComponent<Stacked>(resourceEntity);
+        //                     ecb.AddComponent(beeEntity, new HoldingResource
+        //                     {
+        //                         ResourceEntity = resourceEntity
+        //                     });
+        //                     ecb.RemoveComponent<ResourceTarget>(beeEntity);
+        //                     // ResourceSystem.GrabResource(bee, resourceEntity);
+        //                 }
+        //             }
+        //         }
+
+        //     }
+        //     else
+        //     {
+        //         Entity resourceHolderEntity = ResourceHolderFromEntity[resourceEntity].Holder;
+        //         if (resourceHolderEntity == beeEntity)
+        //         {
+
+        //         }
+        //         else
+        //         {
+        //             var resourceHolderTeam = state.EntityManager.GetSharedComponent<Team>(resourceHolderEntity).Value;
+        //             if (resourceHolderTeam != selfTeam.Value)
+        //             {
+        //                 // TODO: 如果已经存在EnemyTargetComponent会运行时异常吗
+        //                 ecb.AddComponent(beeEntity, new EnemyTarget { BeeEntity = resourceHolderEntity });
+        //             }
+        //             else
+        //             {
+        //                 // bee.resourceTarget = null;
+        //                 ecb.RemoveComponent<ResourceTarget>(beeEntity);
+        //             }
+        //         }
+        //     }
+
+        // }
     }
 }
 
