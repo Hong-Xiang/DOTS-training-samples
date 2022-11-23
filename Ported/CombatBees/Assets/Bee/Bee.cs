@@ -6,15 +6,14 @@ using Unity.Collections;
 using Unity.Transforms;
 using Unity.Rendering;
 using UnityEngine;
+using Unity.Burst;
 
 public struct BeeComponent : IComponentData
 {
     public float3 smoothPosition;
     public float3 smoothDirection;
-    public int team;
     public float size;
     public bool isAttacking;
-    public bool isHoldingResource;
     public int index;
 }
 
@@ -74,10 +73,12 @@ public partial struct HoldingResource : IComponentData
 
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
 [UpdateBefore(typeof(BeeDeathSystem))]
+[BurstCompile]
 public partial struct BeeRandomWalkSystem : ISystem
 {
     public Unity.Mathematics.Random random;
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
@@ -90,7 +91,6 @@ public partial struct BeeRandomWalkSystem : ISystem
             RefRW<Velocity>>().WithNone<Dying>())
         {
             bee.ValueRW.isAttacking = false;
-            bee.ValueRW.isHoldingResource = false;
             var v = velocity.ValueRO.Value;
             v += (random.NextFloat3Direction()) * (config.flightJitter * deltaTime);
             v *= (1f - config.damping);
@@ -98,11 +98,13 @@ public partial struct BeeRandomWalkSystem : ISystem
             velocity.ValueRW.Value = v;
         }
     }
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
         random = Unity.Mathematics.Random.CreateFromIndex(42);
     }
 
+    [BurstCompile]
     public void OnDestroy(ref SystemState state)
     {
     }
@@ -111,20 +113,25 @@ public partial struct BeeRandomWalkSystem : ISystem
 
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
 [UpdateBefore(typeof(BeeDeathSystem))]
+[BurstCompile]
 public partial struct BeeAlliesSystem : ISystem
 {
     Unity.Mathematics.Random random;
     ComponentLookup<LocalToWorldTransform> LocalToWorldTransformFromEntity;
+
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
         random = Unity.Mathematics.Random.CreateFromIndex(42);
         LocalToWorldTransformFromEntity = SystemAPI.GetComponentLookup<LocalToWorldTransform>(true);
     }
 
+    [BurstCompile]
     public void OnDestroy(ref SystemState state)
     {
     }
 
+    [BurstCompile]
     void AlliesFriend(ref SystemState state, int team)
     {
 
@@ -173,29 +180,33 @@ public partial struct BeeAlliesSystem : ISystem
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
 [UpdateAfter(typeof(BeeEnemyTargetSystem))]
 [UpdateAfter(typeof(BeeResourceTargetSystem))]
+[BurstCompile]
 public partial struct BeeNewTargetSystem : ISystem
 {
     Unity.Mathematics.Random random;
     ComponentLookup<ResourceHolder> ResourceHolderFromEntity;
 
-
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
         random = new Unity.Mathematics.Random(233);
         ResourceHolderFromEntity = SystemAPI.GetComponentLookup<ResourceHolder>();
     }
 
+    [BurstCompile]
     public void OnDestroy(ref SystemState state)
     {
     }
 
+    [BurstCompile]
     void TargetEnemyTeam(ref SystemState state, ref EntityCommandBuffer ECB, ref EntityQuery enemyQuery, int aliasTeam, int enemyTeam, float aggression, in NativeArray<Entity> resources)
     {
         enemyQuery.SetSharedComponentFilter(new Team { Value = enemyTeam });
         ResourceHolderFromEntity.Update(ref state);
         using var es = enemyQuery.ToEntityArray(Allocator.Temp);
         foreach (var (b, e) in SystemAPI.Query<BeeComponent>()
-                                                .WithNone<EnemyTarget, ResourceTarget>()
+                                                .WithNone<EnemyTarget, ResourceTarget, HoldingResource>()
+                                                .WithNone<Dying>()
                                                 .WithEntityAccess()
                                                 .WithSharedComponentFilter(new Team { Value = aliasTeam }))
         {
@@ -246,6 +257,7 @@ public partial struct BeeNewTargetSystem : ISystem
         }
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
@@ -262,6 +274,7 @@ public partial struct BeeNewTargetSystem : ISystem
 
 
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
+[BurstCompile]
 public partial struct BeeEnemyTargetSystem : ISystem
 {
     Unity.Mathematics.Random random;
@@ -270,6 +283,7 @@ public partial struct BeeEnemyTargetSystem : ISystem
     ComponentLookup<Dying> DeathFromEntity;
 
 
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
         random = Unity.Mathematics.Random.CreateFromIndex(233);
@@ -278,10 +292,12 @@ public partial struct BeeEnemyTargetSystem : ISystem
         DeathFromEntity = state.GetComponentLookup<Dying>(true);
     }
 
+    [BurstCompile]
     public void OnDestroy(ref SystemState state)
     {
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
 
@@ -296,7 +312,9 @@ public partial struct BeeEnemyTargetSystem : ISystem
 
 
 
-        foreach (var (bee, target, transform, velocity, e) in SystemAPI.Query<RefRW<BeeComponent>, EnemyTarget, TransformAspect, RefRW<Velocity>>().WithNone<Dying>().WithEntityAccess())
+        foreach (var (bee, target, transform, velocity, e) in SystemAPI.Query<RefRW<BeeComponent>, EnemyTarget, TransformAspect, RefRW<Velocity>>()
+                                                                        .WithNone<Dying>()
+                                                                        .WithEntityAccess())
         {
             // 备注：大问题 - ECS没有引用完整性的保证，对于可能被Destory的Entity，引用的地方会有运行时异常
             // 比如如下的SystemAPI.Exists如果不检查，LocalToWorldTransformFromEntity就运行时异常了
@@ -332,6 +350,12 @@ public partial struct BeeEnemyTargetSystem : ISystem
                         });
 
                         ecb.RemoveComponent<EnemyTarget>(e);
+                        if (SystemAPI.HasComponent<HoldingResource>(target.BeeEntity))
+                        {
+                            var resourceEntity = SystemAPI.GetComponent<HoldingResource>(target.BeeEntity).ResourceEntity;
+                            ecb.RemoveComponent<HoldingResource>(target.BeeEntity);
+                            ecb.RemoveComponent<ResourceHolder>(resourceEntity);
+                        }
                     }
                 }
             }
@@ -348,16 +372,19 @@ public partial struct BeeResourceTargetSystem : ISystem
     ComponentLookup<ResourceHolder> ResourceHolderFromEntity;
 
 
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
         random = new Unity.Mathematics.Random(233);
         ResourceHolderFromEntity = state.GetComponentLookup<ResourceHolder>();
     }
 
+    [BurstCompile]
     public void OnDestroy(ref SystemState state)
     {
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
@@ -400,8 +427,18 @@ public partial struct BeeResourceTargetSystem : ISystem
                             velocity.ValueRW.Value += (delta / dist) * (config.chaseForce * SystemAPI.Time.DeltaTime);
                         }
                         // else if (resourceEntity.stacked)
-                        else if (false)
+                        else if (SystemAPI.HasComponent<Stacked>(resourceEntity))
                         {
+                            ecb.AddComponent(resourceEntity, new ResourceHolder
+                            {
+                                Holder = beeEntity
+                            });
+                            ecb.RemoveComponent<Stacked>(resourceEntity);
+                            ecb.AddComponent(beeEntity, new HoldingResource
+                            {
+                                ResourceEntity = resourceEntity
+                            });
+                            ecb.RemoveComponent<ResourceTarget>(beeEntity);
                             // ResourceSystem.GrabResource(bee, resourceEntity);
                         }
                     }
@@ -438,34 +475,40 @@ public partial struct BeeResourceTargetSystem : ISystem
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
 public partial struct BeeHoldingResourceTowardsHiveSystem : ISystem
 {
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
     }
 
+    [BurstCompile]
     public void OnDestroy(ref SystemState state)
     {
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
-        foreach (var (bee, transform, velocity, beeEntity) in SystemAPI.Query<BeeComponent, TransformAspect, RefRW<Velocity>>()
+        foreach (var (bee, team, transform, velocity, holdingResource, beeEntity) in SystemAPI.Query<BeeComponent, Team, TransformAspect, RefRW<Velocity>, HoldingResource>()
                                        .WithNone<Dying>()
-                                       .WithAll<HoldingResource>()
                                        .WithEntityAccess())
         {
             var config = SystemAPI.GetSingleton<BeeConfiguration>();
             var ecb = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>()
                                .CreateCommandBuffer(state.WorldUnmanaged);
-            // TODO: 改为可读性更好的模式，避免bea.team作为int作用
-            float3 targetPos = math.float3(-Field.size.x * .45f + Field.size.x * .9f * bee.team, 0f, transform.Position.z);
+            var field = SystemAPI.GetSingleton<FieldComponent>();
+            var targetPos = field.TargetPosition(transform.Position, team.Value);
             var delta = targetPos - transform.Position;
             var dist = math.length(delta);
-            velocity.ValueRW.Value += delta / dist * config.carryForce * SystemAPI.Time.DeltaTime;
             if (dist < 1f)
             {
                 // resourceEntity.holder = null;
                 // bee.resourceTarget = null;
                 ecb.RemoveComponent<HoldingResource>(beeEntity);
+                ecb.RemoveComponent<ResourceHolder>(holdingResource.ResourceEntity);
+            }
+            else
+            {
+                velocity.ValueRW.Value += (delta / dist) * (config.carryForce * SystemAPI.Time.DeltaTime);
             }
         }
     }
@@ -474,46 +517,51 @@ public partial struct BeeHoldingResourceTowardsHiveSystem : ISystem
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
 [UpdateAfter(typeof(BeeRandomWalkSystem))]
 [UpdateBefore(typeof(BeeDeathSystem))]
+[BurstCompile]
 public partial struct BeeMoveSystem : ISystem
 {
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
     }
 
+    [BurstCompile]
     public void OnDestroy(ref SystemState state)
     {
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
         var resourceConfig = SystemAPI.GetSingleton<ResourceConfiguration>();
-        foreach (var (bee, velocity, transform, smoothPosition) in SystemAPI.Query<BeeComponent, RefRW<Velocity>, TransformAspect, RefRW<SmoothPositionVelociy>>())
+        var field = SystemAPI.GetSingleton<FieldComponent>();
+        foreach (var (bee, velocity, transform, smoothPosition, beeEntity) in SystemAPI.Query<BeeComponent, RefRW<Velocity>, TransformAspect, RefRW<SmoothPositionVelociy>>().WithEntityAccess())
         {
             var deltaTime = SystemAPI.Time.DeltaTime;
             var v = velocity.ValueRO.Value;
             transform.Position += deltaTime * v;
             var position = transform.Position;
 
-            if (math.abs(position.x) > Field.size.x * .5f)
+            if (math.abs(position.x) > field.Size.x * .5f)
             {
-                position.x = (Field.size.x * .5f) * math.sign(position.x);
+                position.x = (field.Size.x * .5f) * math.sign(position.x);
                 v.x *= -.5f;
                 v.y *= .8f;
                 v.z *= .8f;
             }
-            if (math.abs(position.z) > Field.size.z * .5f)
+            if (math.abs(position.z) > field.Size.z * .5f)
             {
-                position.z = (Field.size.z * .5f) * math.sign(position.z);
+                position.z = (field.Size.z * .5f) * math.sign(position.z);
                 v.z *= -.5f;
                 v.x *= .8f;
                 v.y *= .8f;
             }
 
-            var resourceModifier = bee.isHoldingResource ? resourceConfig.resourceSize : 0f;
-            if (math.abs(position.y) > Field.size.y * .5f - resourceModifier)
+            var resourceModifier = SystemAPI.HasComponent<HoldingResource>(beeEntity) ? resourceConfig.resourceSize : 0f;
+            if (math.abs(position.y) > field.Size.y * .5f - resourceModifier)
             {
-                position.y = (Field.size.y * .5f - resourceModifier) * math.sign(position.y);
+                position.y = (field.Size.y * .5f - resourceModifier) * math.sign(position.y);
                 v.y *= -.5f;
                 v.z *= .8f;
                 v.x *= .8f;
@@ -532,24 +580,26 @@ public partial struct BeeMoveSystem : ISystem
     }
 }
 
+[BurstCompile]
 public partial struct BeeSpawnSystem : ISystem
 {
     Unity.Mathematics.Random random;
 
-    void SpawnBee(ref EntityCommandBuffer ECB, float3 pos, int team, in Entity prefab, float2 sizeRange, Color team0Color, Color team1Color, float3 maxSpawnSpeed)
+    [BurstCompile]
+    public static void SpawnBee(ref EntityCommandBuffer ECB, ref Unity.Mathematics.Random random, in float3 pos, int team, in BeeConfiguration config)
     {
-        var instance = ECB.Instantiate(prefab);
-        var size = random.NextFloat(sizeRange[0], sizeRange[1]);
+        var instance = ECB.Instantiate(config.BeePrefab);
+        var size = random.NextFloat(config.minBeeSize, config.maxBeeSize);
         ECB.SetComponent(instance, new LocalToWorldTransform
         {
             Value = UniformScaleTransform.FromPosition(pos).ApplyScale(size)
         });
 
-        var velocity = random.NextFloat3Direction() * maxSpawnSpeed;
+        var velocity = random.NextFloat3Direction() * config.maxSpawnSpeed;
         ECB.AddComponent(instance, new Velocity { Value = velocity });
 
         ECB.AddSharedComponent(instance, new Team { Value = team });
-        var color = team == 0 ? team0Color : team1Color;
+        var color = team == 0 ? config.teamAColor : config.teamBColor;
         ECB.AddComponent(instance, new URPMaterialPropertyBaseColor { Value = math.float4(color.r, color.g, color.b, color.a) });
         ECB.AddComponent(instance, new BeeComponent
         {
@@ -564,23 +614,26 @@ public partial struct BeeSpawnSystem : ISystem
         state.EntityManager.CreateArchetype(typeof(BeeSpawn));
     }
 
+    [BurstCompile]
     public void OnDestroy(ref SystemState state)
     {
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
 
         var ecbSingleton = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
+        var field = SystemAPI.GetSingleton<FieldComponent>();
 
         for (int i = 0; i < config.startBeeCount; i++)
         {
             int team = i % 2;
 
-            Vector3 pos = Vector3.right * (-Field.size.x * .4f + Field.size.x * .8f * team);
-            SpawnBee(ref ecb, pos, team, config.BeePrefab, math.float2(config.minBeeSize, config.maxBeeSize), config.teamAColor, config.teamBColor, config.maxSpawnSpeed);
+            Vector3 pos = Vector3.right * (-field.Size.x * .4f + field.Size.x * .8f * team);
+            SpawnBee(ref ecb, ref random, pos, team, config);
         }
 
         state.Enabled = false;
@@ -592,24 +645,29 @@ public partial struct BeeSpawnSystem : ISystem
 
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
 [UpdateAfter(typeof(BeeNewTargetSystem))]
+[BurstCompile]
 public partial struct BeeDeathSystem : ISystem
 {
     Unity.Mathematics.Random random;
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
         random = Unity.Mathematics.Random.CreateFromIndex(233);
     }
 
+    [BurstCompile]
     public void OnDestroy(ref SystemState state)
     {
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
         var deltaTime = SystemAPI.Time.DeltaTime;
         var ecbSingleton = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
+        var fieldConfiguration = SystemAPI.GetSingleton<FieldComponent>();
 
 
         foreach (var (bee, velocity, death, e) in SystemAPI.Query<RefRW<BeeComponent>, RefRW<Velocity>, RefRW<Dying>>().WithEntityAccess())
@@ -620,7 +678,7 @@ public partial struct BeeDeathSystem : ISystem
             }
 
             var v = velocity.ValueRO.Value;
-            v.y += Field.gravity * deltaTime;
+            v.y += fieldConfiguration.Gravity * deltaTime;
             velocity.ValueRW.Value = v;
 
             death.ValueRW.Timer -= deltaTime / 10f;
@@ -634,14 +692,17 @@ public partial struct BeeDeathSystem : ISystem
 
 partial struct BeeSmoothMovePresentSystem : ISystem
 {
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
     }
 
+    [BurstCompile]
     public void OnDestroy(ref SystemState state)
     {
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         var config = SystemAPI.GetSingleton<BeeConfiguration>();

@@ -6,8 +6,7 @@ using Unity.Mathematics;
 using Unity.Collections;
 using Unity.Transforms;
 using System;
-
-
+using Unity.Burst;
 
 struct ResourceConfiguration : IComponentData
 {
@@ -128,7 +127,6 @@ partial struct ResourceFollowHolderSystem : ISystem
     ComponentLookup<Velocity> VelocityFromEntity;
     public void OnCreate(ref SystemState state)
     {
-        state.Enabled = false;
         BeeFromEntity = state.GetComponentLookup<BeeComponent>(true);
         LocalToWorldTransformFromEntity = state.GetComponentLookup<LocalToWorldTransform>(true);
         VelocityFromEntity = state.GetComponentLookup<Velocity>(true);
@@ -190,11 +188,14 @@ struct ResourceStackHoldLogic
 
 
 
+[BurstCompile]
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
 partial struct ResourceFallenSystem : ISystem
 {
+    Unity.Mathematics.Random random;
     public void OnCreate(ref SystemState state)
     {
+        random = Unity.Mathematics.Random.CreateFromIndex(42);
     }
 
     public void OnDestroy(ref SystemState state)
@@ -202,9 +203,12 @@ partial struct ResourceFallenSystem : ISystem
     }
 
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         var ecbSingleton = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>();
+        var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
+
         var config = SystemAPI.GetSingleton<ResourceConfiguration>();
         var grid = SystemAPI.GetSingleton<Grid>();
         var stackHeight = new NativeArray2DProxy<int>
@@ -213,9 +217,10 @@ partial struct ResourceFallenSystem : ISystem
             data = SystemAPI.GetSingletonBuffer<StackHeight>().Reinterpret<int>().AsNativeArray()
         };
 
+        var beeConfig = SystemAPI.GetSingleton<BeeConfiguration>();
+        var field = SystemAPI.GetSingleton<FieldComponent>();
 
 
-        var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
         // if (resource.holder == null && resource.stacked == false)
         foreach (var (resource, transform, velocity, e) in SystemAPI.Query<
             ResourceComponent,
@@ -227,19 +232,19 @@ partial struct ResourceFallenSystem : ISystem
             position = math.lerp(position, grid.NearestSnappedPos(position), config.snapStiffness * SystemAPI.Time.DeltaTime);
 
             var v = velocity.ValueRO.Value;
-            v.y += Field.gravity * SystemAPI.Time.DeltaTime;
+            v.y += field.Gravity * SystemAPI.Time.DeltaTime;
             position += v * SystemAPI.Time.DeltaTime;
 
 
-            var idx = grid.PositionToIndex(position);
+            var idx = grid.ToInboundIndex(grid.PositionToIndex(position));
 
             // 当resource比较多的时候，可能同时存在多个resource在同一个stack上，此时下面的floorY判断逻辑会出问题
             float floorY = grid.bottom + stackHeight[idx.x, idx.z] * config.resourceSize;
             for (int j = 0; j < 3; j++)
             {
-                if (math.abs(position[j]) > Field.size[j] * .5f)
+                if (math.abs(position[j]) > field.Size[j] * .5f)
                 {
-                    position[j] = Field.size[j] * .5f * Mathf.Sign(position[j]);
+                    position[j] = field.Size[j] * .5f * Mathf.Sign(position[j]);
                     v[j] *= -.5f;
                     v[(j + 1) % 3] *= .8f;
                     v[(j + 2) % 3] *= .8f;
@@ -248,8 +253,13 @@ partial struct ResourceFallenSystem : ISystem
             if (position.y <= floorY)
             {
                 position.y = floorY;
-                if (math.abs(position.x) > Field.size.x * .4f)
+                if (math.abs(position.x) > field.Size.x * .4f)
                 {
+                    for (int i = 0; i < config.beesPerResource; i++)
+                    {
+                        BeeSpawnSystem.SpawnBee(ref ecb, ref random, position, position.x < 0 ? 0 : 1, beeConfig);
+                    }
+                    ecb.DestroyEntity(e);
                     // Resource Spawn Bee System
                 }
                 else
