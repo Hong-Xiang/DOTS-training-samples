@@ -7,6 +7,7 @@ using Unity.Transforms;
 using Unity.Rendering;
 using UnityEngine;
 using Unity.Burst;
+using Unity.Jobs;
 
 public struct BeeComponent : IComponentData
 {
@@ -48,6 +49,10 @@ public partial struct Velocity : IComponentData
 
 
 
+public partial struct BeeRandom : IComponentData
+{
+    public Unity.Mathematics.Random random;
+}
 
 public partial struct Dying : IComponentData
 {
@@ -69,6 +74,24 @@ public partial struct HoldingResource : IComponentData
     public Entity ResourceEntity;
 }
 
+[BurstCompile]
+[WithNone(typeof(Dying))]
+partial struct BeeRandomWalkJob : IJobEntity
+{
+    [ReadOnly] public BeeConfiguration Config;
+    public float DeltaTime;
+
+    [BurstCompile]
+    void Execute(ref BeeComponent bee, ref BeeRandom random, TransformAspect transform, ref Velocity velocity)
+    {
+        bee.isAttacking = false;
+        var v = velocity.Value;
+        v += (random.random.NextFloat3Direction()) * (Config.flightJitter * DeltaTime);
+        v *= (1f - Config.damping);
+
+        velocity.Value = v;
+    }
+}
 
 
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
@@ -85,18 +108,11 @@ public partial struct BeeRandomWalkSystem : ISystem
 
         float deltaTime = SystemAPI.Time.DeltaTime;
 
-        foreach (var (bee, transform, velocity) in SystemAPI.Query<
-            RefRW<BeeComponent>,
-            TransformAspect,
-            RefRW<Velocity>>().WithNone<Dying>())
+        state.Dependency = new BeeRandomWalkJob
         {
-            bee.ValueRW.isAttacking = false;
-            var v = velocity.ValueRO.Value;
-            v += (random.NextFloat3Direction()) * (config.flightJitter * deltaTime);
-            v *= (1f - config.damping);
-
-            velocity.ValueRW.Value = v;
-        }
+            Config = config,
+            DeltaTime = deltaTime,
+        }.ScheduleParallel(state.Dependency);
     }
     [BurstCompile]
     public void OnCreate(ref SystemState state)
@@ -111,6 +127,40 @@ public partial struct BeeRandomWalkSystem : ISystem
 
 }
 
+partial struct BeeAlliesJob : IJobEntity
+{
+    [ReadOnly] public NativeArray<Entity> allies;
+    [ReadOnly] public Unity.Mathematics.Random random;
+    [ReadOnly] public ComponentLookup<LocalToWorldTransform> LocalToWorldTransformFromEntity;
+    [ReadOnly] public BeeConfiguration config;
+    public float deltaTime;
+    void Execute(ref Velocity velocity, in TransformAspect transform)
+    {
+        if (allies.Length <= 1)
+        {
+            return;
+        }
+        var attractiveFriend = allies[random.NextInt(0, allies.Length)];
+        var delta = LocalToWorldTransformFromEntity[attractiveFriend].Value.Position - transform.Position;
+        float dist = math.length(delta);
+        if (dist > 0f)
+        {
+            velocity.Value += delta * (config.teamAttraction * deltaTime / dist);
+        }
+
+        var repellentFriend = allies[random.NextInt(0, allies.Length)];
+        delta = LocalToWorldTransformFromEntity[repellentFriend].Value.Position - transform.Position;
+        dist = math.length(delta);
+        if (dist > 0f)
+        {
+            velocity.Value -= delta * (config.teamRepulsion * deltaTime / dist);
+        }
+
+    }
+
+}
+
+
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
 [UpdateBefore(typeof(BeeDeathSystem))]
 [BurstCompile]
@@ -122,6 +172,7 @@ public partial struct BeeAlliesSystem : ISystem
     [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
+        state.Enabled = false;
         random = Unity.Mathematics.Random.CreateFromIndex(42);
         LocalToWorldTransformFromEntity = SystemAPI.GetComponentLookup<LocalToWorldTransform>(true);
     }
@@ -139,32 +190,42 @@ public partial struct BeeAlliesSystem : ISystem
         var deltaTime = SystemAPI.Time.DeltaTime;
         var q = SystemAPI.QueryBuilder().WithAll<BeeComponent, Team>().Build();
         q.SetSharedComponentFilter(new Team { Value = team });
-        using var allies = q.ToEntityArray(Allocator.Temp);
+        using var allies = q.ToEntityArray(Allocator.TempJob);
         LocalToWorldTransformFromEntity.Update(ref state);
-
-        foreach (var (bee, transform, velocity) in SystemAPI.Query<BeeComponent, TransformAspect, RefRW<Velocity>>().WithSharedComponentFilter(new Team { Value = team }))
+        var j = new BeeAlliesJob
         {
-            // 原始代码中没有进行这个检查，原则上算是一个bug，只不过这个不会出现数组访问越界，但是会除0
-            if (allies.Length <= 1)
-            {
-                continue;
-            }
-            var attractiveFriend = allies[random.NextInt(0, allies.Length)];
-            var delta = LocalToWorldTransformFromEntity[attractiveFriend].Value.Position - transform.Position;
-            float dist = math.length(delta);
-            if (dist > 0f)
-            {
-                velocity.ValueRW.Value += delta * (config.teamAttraction * deltaTime / dist);
-            }
+            allies = allies,
+            random = random,
+            LocalToWorldTransformFromEntity = LocalToWorldTransformFromEntity,
+            config = config,
+            deltaTime = deltaTime
+        }.ScheduleParallel(state.Dependency);
+        state.Dependency = j;
+        j.Complete();
 
-            var repellentFriend = allies[random.NextInt(0, allies.Length)];
-            delta = LocalToWorldTransformFromEntity[repellentFriend].Value.Position - transform.Position;
-            dist = math.length(delta);
-            if (dist > 0f)
-            {
-                velocity.ValueRW.Value -= delta * (config.teamRepulsion * deltaTime / dist);
-            }
-        }
+        // foreach (var (bee, transform, velocity) in SystemAPI.Query<BeeComponent, TransformAspect, RefRW<Velocity>>().WithSharedComponentFilter(new Team { Value = team }))
+        // {
+        //     // 原始代码中没有进行这个检查，原则上算是一个bug，只不过这个不会出现数组访问越界，但是会除0
+        //     if (allies.Length <= 1)
+        //     {
+        //         continue;
+        //     }
+        //     var attractiveFriend = allies[random.NextInt(0, allies.Length)];
+        //     var delta = LocalToWorldTransformFromEntity[attractiveFriend].Value.Position - transform.Position;
+        //     float dist = math.length(delta);
+        //     if (dist > 0f)
+        //     {
+        //         velocity.ValueRW.Value += delta * (config.teamAttraction * deltaTime / dist);
+        //     }
+
+        //     var repellentFriend = allies[random.NextInt(0, allies.Length)];
+        //     delta = LocalToWorldTransformFromEntity[repellentFriend].Value.Position - transform.Position;
+        //     dist = math.length(delta);
+        //     if (dist > 0f)
+        //     {
+        //         velocity.ValueRW.Value -= delta * (config.teamRepulsion * deltaTime / dist);
+        //     }
+        // }
 
 
     }
@@ -472,45 +533,123 @@ public partial struct BeeResourceTargetSystem : ISystem
     }
 }
 
+
+[WithNone(typeof(Dying))]
+partial struct BeeHoldingResourceTowardsHiveJob : IJobEntity
+{
+    public EntityCommandBuffer.ParallelWriter ecb;
+    [ReadOnly] public BeeConfiguration config;
+    [ReadOnly] public FieldComponent field;
+    [ReadOnly] public float DeltaTime;
+
+    void Execute([Unity.Entities.EntityInQueryIndex] int inQueryIndex, ref Velocity velocity, in BeeComponent bee, in Team team, in TransformAspect transform, in HoldingResource holdingResource, in Entity beeEntity)
+    {
+
+        var targetPos = field.TargetPosition(transform.Position, team.Value);
+        var delta = targetPos - transform.Position;
+        var dist = math.length(delta);
+        if (dist < 1f)
+        {
+            // resourceEntity.holder = null;
+            // bee.resourceTarget = null;
+            ecb.RemoveComponent<HoldingResource>(inQueryIndex, beeEntity);
+            ecb.RemoveComponent<ResourceHolder>(inQueryIndex, holdingResource.ResourceEntity);
+        }
+        else
+        {
+            velocity.Value += (delta / dist) * (config.carryForce * DeltaTime);
+        }
+
+    }
+}
+
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
 public partial struct BeeHoldingResourceTowardsHiveSystem : ISystem
 {
-    [BurstCompile]
+
+    // [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
     }
 
-    [BurstCompile]
+    // [BurstCompile]
+
     public void OnDestroy(ref SystemState state)
     {
     }
 
-    [BurstCompile]
+    // [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
-        foreach (var (bee, team, transform, velocity, holdingResource, beeEntity) in SystemAPI.Query<BeeComponent, Team, TransformAspect, RefRW<Velocity>, HoldingResource>()
-                                       .WithNone<Dying>()
-                                       .WithEntityAccess())
+        var config = SystemAPI.GetSingleton<BeeConfiguration>();
+        var ecb = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>()
+                           .CreateCommandBuffer(state.WorldUnmanaged);
+
+        var field = SystemAPI.GetSingleton<FieldComponent>();
+        var deltaTime = SystemAPI.Time.DeltaTime;
+        state.Dependency = new BeeHoldingResourceTowardsHiveJob
         {
-            var config = SystemAPI.GetSingleton<BeeConfiguration>();
-            var ecb = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>()
-                               .CreateCommandBuffer(state.WorldUnmanaged);
-            var field = SystemAPI.GetSingleton<FieldComponent>();
-            var targetPos = field.TargetPosition(transform.Position, team.Value);
-            var delta = targetPos - transform.Position;
-            var dist = math.length(delta);
-            if (dist < 1f)
-            {
-                // resourceEntity.holder = null;
-                // bee.resourceTarget = null;
-                ecb.RemoveComponent<HoldingResource>(beeEntity);
-                ecb.RemoveComponent<ResourceHolder>(holdingResource.ResourceEntity);
-            }
-            else
-            {
-                velocity.ValueRW.Value += (delta / dist) * (config.carryForce * SystemAPI.Time.DeltaTime);
-            }
+            ecb = ecb.AsParallelWriter(),
+            config = config,
+            field = field,
+            DeltaTime = deltaTime
+        }.ScheduleParallel(state.Dependency);
+    }
+}
+
+
+[BurstCompile]
+partial struct BeeMoveJob : IJobEntity
+{
+    [ReadOnly] public BeeConfiguration config;
+    [ReadOnly] public ResourceConfiguration resourceConfig;
+    [ReadOnly] public FieldComponent field;
+
+    [ReadOnly] public ComponentLookup<HoldingResource> HoldingResourceFromEntity;
+    public float deltaTime;
+
+
+    [BurstCompile]
+    void Execute(ref Velocity velocity, ref TransformAspect transform, ref SmoothPositionVelociy smooth, in BeeComponent bee, in Entity beeEntity)
+    {
+        var v = velocity.Value;
+        transform.Position += deltaTime * v;
+        var position = transform.Position;
+
+        if (math.abs(position.x) > field.Size.x * .5f)
+        {
+            position.x = (field.Size.x * .5f) * math.sign(position.x);
+            v.x *= -.5f;
+            v.y *= .8f;
+            v.z *= .8f;
         }
+        if (math.abs(position.z) > field.Size.z * .5f)
+        {
+            position.z = (field.Size.z * .5f) * math.sign(position.z);
+            v.z *= -.5f;
+            v.x *= .8f;
+            v.y *= .8f;
+        }
+
+        var resourceModifier = HoldingResourceFromEntity.HasComponent(beeEntity) ? resourceConfig.resourceSize : 0f;
+        if (math.abs(position.y) > field.Size.y * .5f - resourceModifier)
+        {
+            position.y = (field.Size.y * .5f - resourceModifier) * math.sign(position.y);
+            v.y *= -.5f;
+            v.z *= .8f;
+            v.x *= .8f;
+        }
+        transform.Position = position;
+        velocity.Value = v;
+
+
+        // // only used for smooth rotation:
+        var oldPosition = smooth.Position;
+        var updatedSmoothPosition = bee.isAttacking ? transform.Position :
+            math.lerp(oldPosition, transform.Position, deltaTime * config.rotationStiffness);
+        smooth.Position = updatedSmoothPosition;
+        smooth.Velocity = updatedSmoothPosition - oldPosition;
+
     }
 }
 
@@ -520,9 +659,11 @@ public partial struct BeeHoldingResourceTowardsHiveSystem : ISystem
 [BurstCompile]
 public partial struct BeeMoveSystem : ISystem
 {
+    ComponentLookup<HoldingResource> HoldingResourceFromEntity;
     [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
+        HoldingResourceFromEntity = state.GetComponentLookup<HoldingResource>();
     }
 
     [BurstCompile]
@@ -536,47 +677,57 @@ public partial struct BeeMoveSystem : ISystem
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
         var resourceConfig = SystemAPI.GetSingleton<ResourceConfiguration>();
         var field = SystemAPI.GetSingleton<FieldComponent>();
-        foreach (var (bee, velocity, transform, smoothPosition, beeEntity) in SystemAPI.Query<BeeComponent, RefRW<Velocity>, TransformAspect, RefRW<SmoothPositionVelociy>>().WithEntityAccess())
+        var deltaTime = SystemAPI.Time.DeltaTime;
+        HoldingResourceFromEntity.Update(ref state);
+
+        // foreach (var (bee, velocity, transform, smoothPosition, beeEntity) in SystemAPI.Query<BeeComponent, RefRW<Velocity>, TransformAspect, RefRW<SmoothPositionVelociy>>().WithEntityAccess())
+        // {
+        //     var v = velocity.ValueRO.Value;
+        //     transform.Position += deltaTime * v;
+        //     var position = transform.Position;
+
+        //     if (math.abs(position.x) > field.Size.x * .5f)
+        //     {
+        //         position.x = (field.Size.x * .5f) * math.sign(position.x);
+        //         v.x *= -.5f;
+        //         v.y *= .8f;
+        //         v.z *= .8f;
+        //     }
+        //     if (math.abs(position.z) > field.Size.z * .5f)
+        //     {
+        //         position.z = (field.Size.z * .5f) * math.sign(position.z);
+        //         v.z *= -.5f;
+        //         v.x *= .8f;
+        //         v.y *= .8f;
+        //     }
+
+        //     var resourceModifier = SystemAPI.HasComponent<HoldingResource>(beeEntity) ? resourceConfig.resourceSize : 0f;
+        //     if (math.abs(position.y) > field.Size.y * .5f - resourceModifier)
+        //     {
+        //         position.y = (field.Size.y * .5f - resourceModifier) * math.sign(position.y);
+        //         v.y *= -.5f;
+        //         v.z *= .8f;
+        //         v.x *= .8f;
+        //     }
+        //     transform.Position = position;
+        //     velocity.ValueRW.Value = v;
+
+
+        //     // // only used for smooth rotation:
+        //     var oldPosition = smoothPosition.ValueRO.Position;
+        //     var updatedSmoothPosition = bee.isAttacking ? transform.Position :
+        //         math.lerp(oldPosition, transform.Position, deltaTime * config.rotationStiffness);
+        //     smoothPosition.ValueRW.Position = updatedSmoothPosition;
+        //     smoothPosition.ValueRW.Velocity = updatedSmoothPosition - oldPosition;
+        // }
+        state.Dependency = new BeeMoveJob
         {
-            var deltaTime = SystemAPI.Time.DeltaTime;
-            var v = velocity.ValueRO.Value;
-            transform.Position += deltaTime * v;
-            var position = transform.Position;
-
-            if (math.abs(position.x) > field.Size.x * .5f)
-            {
-                position.x = (field.Size.x * .5f) * math.sign(position.x);
-                v.x *= -.5f;
-                v.y *= .8f;
-                v.z *= .8f;
-            }
-            if (math.abs(position.z) > field.Size.z * .5f)
-            {
-                position.z = (field.Size.z * .5f) * math.sign(position.z);
-                v.z *= -.5f;
-                v.x *= .8f;
-                v.y *= .8f;
-            }
-
-            var resourceModifier = SystemAPI.HasComponent<HoldingResource>(beeEntity) ? resourceConfig.resourceSize : 0f;
-            if (math.abs(position.y) > field.Size.y * .5f - resourceModifier)
-            {
-                position.y = (field.Size.y * .5f - resourceModifier) * math.sign(position.y);
-                v.y *= -.5f;
-                v.z *= .8f;
-                v.x *= .8f;
-            }
-            transform.Position = position;
-            velocity.ValueRW.Value = v;
-
-
-            // // only used for smooth rotation:
-            var oldPosition = smoothPosition.ValueRO.Position;
-            var updatedSmoothPosition = bee.isAttacking ? transform.Position :
-                math.lerp(oldPosition, transform.Position, deltaTime * config.rotationStiffness);
-            smoothPosition.ValueRW.Position = updatedSmoothPosition;
-            smoothPosition.ValueRW.Velocity = updatedSmoothPosition - oldPosition;
-        }
+            config = config,
+            resourceConfig = resourceConfig,
+            field = field,
+            deltaTime = deltaTime,
+            HoldingResourceFromEntity = HoldingResourceFromEntity
+        }.ScheduleParallel(state.Dependency);
     }
 }
 
@@ -607,6 +758,7 @@ public partial struct BeeSpawnSystem : ISystem
         });
         ECB.AddComponent(instance, new SmoothPositionVelociy { });
         ECB.AddComponent(instance, new PostTransformMatrix { Value = float4x4.identity });
+        ECB.AddComponent(instance, new BeeRandom { random = Unity.Mathematics.Random.CreateFromIndex(random.NextUInt()) });
     }
     public void OnCreate(ref SystemState state)
     {
@@ -690,6 +842,64 @@ public partial struct BeeDeathSystem : ISystem
     }
 }
 
+
+
+
+
+[WithNone(typeof(Dying))]
+partial struct AliveBeeSmoothMovePresentJob : IJobEntity
+{
+    [ReadOnly] public BeeConfiguration config;
+
+    void Execute(ref PostTransformMatrix matrix,
+                 in BeeComponent bee,
+                 in Velocity velocity,
+                 in SmoothPositionVelociy smooth
+    )
+    {
+        float size = bee.size;
+        float3 scale = math.float3(size);
+        float stretch = math.max(1f, math.length(velocity.Value) * config.speedStretch);
+        scale.z *= stretch;
+        scale.x /= (stretch - 1f) / 5f + 1f;
+        scale.y /= (stretch - 1f) / 5f + 1f;
+
+        quaternion rotation = quaternion.identity;
+        if (math.length(smooth.Velocity) > math.EPSILON)
+        {
+            rotation = quaternion.LookRotation(smooth.Velocity, math.float3(0f, 1f, 0f));
+        }
+        matrix.Value = float4x4.TRS(float3.zero, rotation, scale);
+    }
+}
+
+partial struct DyingBeeSmoothMovePresentJob : IJobEntity
+{
+    [ReadOnly] public BeeConfiguration config;
+
+    void Execute(ref PostTransformMatrix matrix,
+                 ref URPMaterialPropertyBaseColor color,
+                 in BeeComponent bee,
+                 in Team team,
+                 in Dying dying,
+                 in Velocity velocity,
+                 in SmoothPositionVelociy smooth
+    )
+    {
+
+        quaternion rotation = quaternion.identity;
+        if (math.length(smooth.Velocity) > math.EPSILON)
+        {
+            rotation = quaternion.LookRotation(smooth.Velocity, Vector3.up);
+        }
+        matrix.Value = float4x4.TRS(float3.zero, rotation, math.float3(math.sqrt(dying.Timer)));
+        var c = team.Value == 0 ? config.teamAColor : config.teamBColor;
+        color.Value = math.float4(math.float3(c.r, c.g, c.b) * .75f, 1f);
+
+
+    }
+}
+
 partial struct BeeSmoothMovePresentSystem : ISystem
 {
     [BurstCompile]
@@ -710,33 +920,45 @@ partial struct BeeSmoothMovePresentSystem : ISystem
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
 
 
-        foreach (var (bee, velocity, transform, smooth, matrix) in SystemAPI.Query<BeeComponent, Velocity, TransformAspect, SmoothPositionVelociy, RefRW<PostTransformMatrix>>().WithNone<Dying>())
-        {
-            float size = bee.size;
-            float3 scale = math.float3(size);
-            float stretch = math.max(1f, math.length(velocity.Value) * config.speedStretch);
-            scale.z *= stretch;
-            scale.x /= (stretch - 1f) / 5f + 1f;
-            scale.y /= (stretch - 1f) / 5f + 1f;
+        // foreach (var (bee, velocity, transform, smooth, matrix) in SystemAPI.Query<BeeComponent, Velocity, TransformAspect, SmoothPositionVelociy, RefRW<PostTransformMatrix>>().WithNone<Dying>())
+        // {
+        //     float size = bee.size;
+        //     float3 scale = math.float3(size);
+        //     float stretch = math.max(1f, math.length(velocity.Value) * config.speedStretch);
+        //     scale.z *= stretch;
+        //     scale.x /= (stretch - 1f) / 5f + 1f;
+        //     scale.y /= (stretch - 1f) / 5f + 1f;
 
-            quaternion rotation = quaternion.identity;
-            if (math.length(smooth.Velocity) > math.EPSILON)
-            {
-                rotation = quaternion.LookRotation(smooth.Velocity, Vector3.up);
-            }
-            matrix.ValueRW.Value = float4x4.TRS(float3.zero, rotation, scale);
-        }
+        //     quaternion rotation = quaternion.identity;
+        //     if (math.length(smooth.Velocity) > math.EPSILON)
+        //     {
+        //         rotation = quaternion.LookRotation(smooth.Velocity, Vector3.up);
+        //     }
+        //     matrix.ValueRW.Value = float4x4.TRS(float3.zero, rotation, scale);
+        // }
 
-        foreach (var (bee, team, dying, smooth, color, matrix) in SystemAPI.Query<BeeComponent, Team, Dying, SmoothPositionVelociy, RefRW<URPMaterialPropertyBaseColor>, RefRW<PostTransformMatrix>>())
-        {
-            quaternion rotation = quaternion.identity;
-            if (math.length(smooth.Velocity) > math.EPSILON)
+        state.Dependency = JobHandle.CombineDependencies(
+            new AliveBeeSmoothMovePresentJob
             {
-                rotation = quaternion.LookRotation(smooth.Velocity, Vector3.up);
-            }
-            matrix.ValueRW.Value = float4x4.TRS(float3.zero, rotation, math.float3(math.sqrt(dying.Timer)));
-            var c = team.Value == 0 ? config.teamAColor : config.teamBColor;
-            color.ValueRW.Value = math.float4(math.float3(c.r, c.g, c.b) * .75f, 1f);
-        }
+                config = config,
+            }.ScheduleParallel(state.Dependency),
+            new DyingBeeSmoothMovePresentJob
+            {
+                config = config
+            }.ScheduleParallel(state.Dependency)
+        );
+
+
+        // foreach (var (bee, team, dying, smooth, color, matrix) in SystemAPI.Query<BeeComponent, Team, Dying, SmoothPositionVelociy, RefRW<URPMaterialPropertyBaseColor>, RefRW<PostTransformMatrix>>())
+        // {
+        //     quaternion rotation = quaternion.identity;
+        //     if (math.length(smooth.Velocity) > math.EPSILON)
+        //     {
+        //         rotation = quaternion.LookRotation(smooth.Velocity, Vector3.up);
+        //     }
+        //     matrix.ValueRW.Value = float4x4.TRS(float3.zero, rotation, math.float3(math.sqrt(dying.Timer)));
+        //     var c = team.Value == 0 ? config.teamAColor : config.teamBColor;
+        //     color.ValueRW.Value = math.float4(math.float3(c.r, c.g, c.b) * .75f, 1f);
+        // }
     }
 }

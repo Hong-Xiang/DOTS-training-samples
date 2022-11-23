@@ -70,7 +70,6 @@ partial struct FieldDiscritizationSystem : ISystem
     public void OnCreate(ref SystemState state)
     {
         discritizationType = state.EntityManager.CreateArchetype(typeof(Grid));
-
     }
 
     public void OnDestroy(ref SystemState state)

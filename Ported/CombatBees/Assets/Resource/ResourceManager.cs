@@ -3,24 +3,9 @@ using System.Collections.Generic;
 using UnityEngine;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.Collections;
 using Unity.Transforms;
-using System;
 using Unity.Burst;
-
-struct ResourceConfiguration : IComponentData
-{
-    public Entity resourcePrefab;
-    public float resourceSize;
-    public float snapStiffness;
-    public float carryStiffness;
-    public float spawnRate;
-    public int beesPerResource;
-    public int startResourceCount;
-    public int maxResourceCount;
-}
-
-
+using Unity.Collections;
 
 partial struct ResourceSpawnSystem : ISystem
 {
@@ -90,41 +75,41 @@ partial struct ResourceSpawnSystem : ISystem
     }
 }
 
-partial struct ResourceSpawnBeeSystem : ISystem
+[WithAll(typeof(ResourceComponent))]
+partial struct ResourceFollowHolderJob : IJobEntity
 {
-    public void OnCreate(ref SystemState state)
+    [ReadOnly] public ComponentLookup<BeeComponent> BeeFromEntity;
+    [NativeDisableParallelForRestriction]
+    public ComponentLookup<LocalToWorldTransform> LocalToWorldTransformFromEntity;
+    [ReadOnly] public ComponentLookup<Velocity> VelocityFromEntity;
+    public EntityCommandBuffer ECB;
+    public ResourceConfiguration config;
+    public void Execute(ref Velocity velocity, in TransformAspect transform, in ResourceHolder holder, in Entity e)
     {
-    }
-
-    public void OnDestroy(ref SystemState state)
-    {
-    }
-
-    public void OnUpdate(ref SystemState state)
-    {
-        // int team = 0;
-        // if (resource.position.x > 0f)
-        // {
-        //     team = 1;
-        // }
-        // for (int j = 0; j < config.beesPerResource; j++)
-        // {
-        //     // TODO: add method to span bee
-        //     // BeeManagerSystem.SpawnBee(resource.position, team);
-        // }
-        // ParticleManager.SpawnParticle(resource.position, ParticleType.SpawnFlash, Vector3.zero, 6f, 5);
-        // DeleteResource(resource);
+        if ((!SystemAPI.Exists(holder.Holder)) || SystemAPI.HasComponent<Dying>(holder.Holder))
+        {
+            ECB.RemoveComponent<ResourceHolder>(e);
+        }
+        else
+        {
+            var bee = BeeFromEntity[holder.Holder];
+            var holderPosition = LocalToWorldTransformFromEntity[holder.Holder].Value.Position;
+            float3 targetPos = holderPosition - math.float3(Vector3.up) * (config.resourceSize + bee.size) * .5f;
+            transform.Position = math.lerp(transform.Position, targetPos, config.carryStiffness * SystemAPI.Time.DeltaTime);
+            velocity.Value = VelocityFromEntity[holder.Holder].Value;
+        }
     }
 }
 
-
-
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
+[BurstCompile]
 partial struct ResourceFollowHolderSystem : ISystem
 {
     ComponentLookup<BeeComponent> BeeFromEntity;
     ComponentLookup<LocalToWorldTransform> LocalToWorldTransformFromEntity;
     ComponentLookup<Velocity> VelocityFromEntity;
+
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
         BeeFromEntity = state.GetComponentLookup<BeeComponent>(true);
@@ -136,6 +121,7 @@ partial struct ResourceFollowHolderSystem : ISystem
     {
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         var ecbSingleton = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>();
@@ -163,6 +149,13 @@ partial struct ResourceFollowHolderSystem : ISystem
                 velocity.ValueRW.Value = VelocityFromEntity[holder.Holder].Value;
             }
         }
+        // new ResourceFollowHolderJob
+        // {
+        //     BeeFromEntity = BeeFromEntity,
+        //     LocalToWorldTransformFromEntity = LocalToWorldTransformFromEntity,
+        //     VelocityFromEntity = VelocityFromEntity,
+        //     ECB = ecb
+        // }.Schedule();
     }
 }
 
@@ -286,7 +279,6 @@ partial struct ResourceOverHeightRemoveSystem : ISystem
 {
     public void OnCreate(ref SystemState state)
     {
-        state.Enabled = false;
     }
 
     public void OnDestroy(ref SystemState state)
@@ -308,120 +300,5 @@ partial struct ResourceOverHeightRemoveSystem : ISystem
                 ecb.DestroyEntity(e);
             }
         }
-    }
-}
-
-partial struct ResourceSystem : ISystem
-{
-    public ResourceConfiguration config;
-    public EntityQuery beeQuery;
-
-    Unity.Mathematics.Random random;
-
-
-    Vector2Int gridCounts;
-    Vector2 gridSize;
-    Vector2 minGridPos;
-
-    bool isFirstRun;
-
-
-
-
-    float spawnTimer;
-
-    public static ResourceSystem instance;
-
-    // public static Resource TryGetRandomResource()
-    // {
-    //     if (instance.resources.Count == 0)
-    //     {
-    //         return null;
-    //     }
-    //     else
-    //     {
-    //         Resource resource = instance.resources[UnityEngine.Random.Range(0, instance.resources.Count)];
-    //         int stackHeight = instance.stackHeights[resource.gridX, resource.gridY];
-    //         if (resource.holder == null || resource.stackIndex == stackHeight - 1)
-    //         {
-    //             return resource;
-    //         }
-    //         else
-    //         {
-    //             return null;
-    //         }
-
-    //     }
-    // }
-
-    public static bool IsTopOfStack(Resource resource)
-    {
-        return true;
-        // int stackHeight = instance.stackHeights[resource.gridX, resource.gridY];
-        // return resource.stackIndex == stackHeight - 1;
-    }
-
-    Vector3 GetStackPos(int x, int y, int height)
-    {
-        return new Vector3(minGridPos.x + x * gridSize.x,
-                           -Field.size.y * .5f + (height + .5f) * config.resourceSize,
-                           minGridPos.y + y * gridSize.y);
-    }
-
-
-    void GetGridIndex(Vector3 pos, out int gridX, out int gridY)
-    {
-        gridX = Mathf.FloorToInt((pos.x - minGridPos.x + gridSize.x * .5f) / gridSize.x);
-        gridY = Mathf.FloorToInt((pos.z - minGridPos.y + gridSize.y * .5f) / gridSize.y);
-
-        gridX = Mathf.Clamp(gridX, 0, gridCounts.x - 1);
-        gridY = Mathf.Clamp(gridY, 0, gridCounts.y - 1);
-    }
-
-
-    void DeleteResource(Resource resource)
-    {
-        resource.dead = true;
-        // resources.Remove(resource);
-    }
-
-    public static void GrabResource(Bee bee, Resource resource)
-    {
-        resource.holder = bee;
-        resource.stacked = false;
-        // instance.stackHeights[resource.gridX, resource.gridY]--;
-    }
-
-
-    public void OnCreate(ref SystemState state)
-    {
-        state.Enabled = false;
-        instance = this;
-        random = new Unity.Mathematics.Random(42);
-        isFirstRun = true;
-        spawnTimer = 0f;
-    }
-
-    public void OnUpdate(ref SystemState state)
-    {
-        var ecbSingleton = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>();
-        var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
-
-
-        foreach (var resource in SystemAPI.Query<ResourceComponent>())
-        {
-
-
-
-
-
-        }
-
-
-
-    }
-
-    public void OnDestroy(ref SystemState state)
-    {
     }
 }

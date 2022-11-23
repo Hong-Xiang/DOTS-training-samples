@@ -5,7 +5,6 @@ using Unity.Transforms;
 
 partial struct ResourceComponent : IComponentData
 {
-
 }
 
 partial struct ResourceHolder : IComponentData
