@@ -24,13 +24,13 @@ partial struct BloodParticle : IComponentData { }
 partial struct SpawnParticle : IComponentData { }
 
 
-[BurstCompile]
+// [BurstCompile]
 partial struct ParticleSpawner
 {
     [ReadOnly] public ParticleConfiguration config;
 
 
-    [BurstCompile]
+    // [BurstCompile]
     public void SpawnParticleSpawnFlash(ref Random random,
                                         EntityCommandBuffer ecb,
                                         float3 position,
@@ -59,7 +59,7 @@ partial struct ParticleSpawner
         ecb.AddComponent(instance, new URPMaterialPropertyBaseColor { Value = math.float4(1f) });
     }
 
-    [BurstCompile]
+    // [BurstCompile]
     public void SpawnParticleBlood(ref Random random,
                                    in int sortKey,
                                    EntityCommandBuffer.ParallelWriter ecb,
@@ -117,7 +117,7 @@ partial struct ParticleSpawnSystem : ISystem
 
     public void OnUpdate(ref SystemState state)
     {
-        var ecb = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>()
+        var ecb = SystemAPI.GetSingleton<EndFixedStepSimulationEntityCommandBufferSystem.Singleton>()
                            .CreateCommandBuffer(state.WorldUnmanaged);
         var config = SystemAPI.GetSingleton<ParticleConfiguration>();
         var ps = new ParticleSpawner
@@ -208,7 +208,7 @@ partial struct ParticleSimulationSystem : ISystem
     {
         float deltaTime = SystemAPI.Time.DeltaTime;
         var field = SystemAPI.GetSingleton<FieldComponent>();
-        var ecb = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>()
+        var ecb = SystemAPI.GetSingleton<EndFixedStepSimulationEntityCommandBufferSystem.Singleton>()
                            .CreateCommandBuffer(state.WorldUnmanaged);
 
         state.Dependency = new ParticleSimulationJob

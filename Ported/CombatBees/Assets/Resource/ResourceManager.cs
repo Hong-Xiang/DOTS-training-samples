@@ -35,7 +35,7 @@ partial struct ResourceSpawnSystem : ISystem
 
     public void OnUpdate(ref SystemState state)
     {
-        var ecbSingleton = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>();
+        var ecbSingleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
         var config = SystemAPI.GetSingleton<ResourceConfiguration>();
         var grid = SystemAPI.GetSingleton<Grid>();
@@ -124,7 +124,7 @@ partial struct ResourceFollowHolderSystem : ISystem
     [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
-        var ecbSingleton = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>();
+        var ecbSingleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
         var config = SystemAPI.GetSingleton<ResourceConfiguration>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
 
@@ -181,7 +181,7 @@ struct ResourceStackHoldLogic
 
 
 
-[BurstCompile]
+// [BurstCompile]
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
 partial struct ResourceFallenSystem : ISystem
 {
@@ -196,10 +196,10 @@ partial struct ResourceFallenSystem : ISystem
     }
 
 
-    [BurstCompile]
+    // [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
-        var ecbSingleton = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>();
+        var ecbSingleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
 
         var config = SystemAPI.GetSingleton<ResourceConfiguration>();
@@ -296,7 +296,7 @@ partial struct ResourceOverHeightRemoveSystem : ISystem
 
     public void OnUpdate(ref SystemState state)
     {
-        var ecbSingleton = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>();
+        var ecbSingleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
         var config = SystemAPI.GetSingleton<ResourceConfiguration>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
         // if (resource.holder == null && resource.stacked == false)

@@ -293,7 +293,7 @@ public partial struct BeeNewTargetSystem : ISystem
     [BurstCompile]
     JobHandle TargetEnemyTeam(ref SystemState state, ref EntityQuery enemyQuery, int aliasTeam, int enemyTeam, float aggression)
     {
-        var ecbSingleton = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>();
+        var ecbSingleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
         enemyQuery.SetSharedComponentFilter(new Team { Value = enemyTeam });
         var es = enemyQuery.ToEntityArray(Allocator.TempJob);
@@ -315,7 +315,7 @@ public partial struct BeeNewTargetSystem : ISystem
     public void OnUpdate(ref SystemState state)
     {
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
-        var beeQuery = SystemAPI.QueryBuilder().WithAll<BeeComponent, Team>().Build();
+        var beeQuery = SystemAPI.QueryBuilder().WithAll<BeeComponent, Team>().WithNone<Dying>().Build();
         ResourceHolderFromEntity.Update(ref state);
 
         state.Dependency = JobHandle.CombineDependencies(
@@ -486,7 +486,7 @@ public partial struct BeeEnemyTargetSystem : ISystem
         {
             config = particleConfig
         };
-        var ecbSingleton = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>();
+        var ecbSingleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
         LocalToWorldTransformFromEntity.Update(ref state);
         DeathFromEntity.Update(ref state);
@@ -639,7 +639,7 @@ public partial struct BeeResourceTargetSystem : ISystem
     public void OnUpdate(ref SystemState state)
     {
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
-        var ecb = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>()
+        var ecb = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>()
                            .CreateCommandBuffer(state.WorldUnmanaged);
         ResourceHolderFromEntity.Update(ref state);
         LocalToWorldTransformFromEntity.Update(ref state);
@@ -790,7 +790,7 @@ public partial struct BeeHoldingResourceTowardsHiveSystem : ISystem
     public void OnUpdate(ref SystemState state)
     {
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
-        var ecb = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>()
+        var ecb = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>()
                            .CreateCommandBuffer(state.WorldUnmanaged);
 
         var field = SystemAPI.GetSingleton<FieldComponent>();
@@ -1021,7 +1021,7 @@ public partial struct BeeSpawnSystem : ISystem
     {
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
 
-        var ecbSingleton = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>();
+        var ecbSingleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
         var field = SystemAPI.GetSingleton<FieldComponent>();
 
@@ -1089,14 +1089,15 @@ public partial struct BeeDeathSystem : ISystem
     {
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
         var deltaTime = SystemAPI.Time.DeltaTime;
-        var ecbSingleton = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>();
+        var ecbSingleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
         var fieldConfiguration = SystemAPI.GetSingleton<FieldComponent>();
 
         state.Dependency = new BeeDeathJob
         {
             fieldConfiguration = fieldConfiguration,
-            ecb = ecb.AsParallelWriter()
+            ecb = ecb.AsParallelWriter(),
+            deltaTime = deltaTime
 
         }.ScheduleParallel(state.Dependency);
 
@@ -1200,7 +1201,7 @@ partial struct BeeSmoothMovePresentSystem : ISystem
     public void OnUpdate(ref SystemState state)
     {
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
-        var ecbSingleton = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>();
+        var ecbSingleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
 
 
