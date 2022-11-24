@@ -65,11 +65,8 @@ partial struct PerformanceDataResult : IComponentData
 [BurstCompile]
 public partial struct TestPerformanceSystem : ISystem
 {
-    float accumulate;
-
     public void OnCreate(ref SystemState state)
     {
-        accumulate = 0f;
         var e = state.EntityManager.CreateEntity(typeof(PerformanceDataResult));
         state.EntityManager.AddComponentData(e, new PerformanceDataResult { Value = 0f });
         state.Enabled = false;

@@ -213,6 +213,11 @@ partial struct ResourceFallenSystem : ISystem
         var beeConfig = SystemAPI.GetSingleton<BeeConfiguration>();
         var field = SystemAPI.GetSingleton<FieldComponent>();
 
+        var particleSpawner = new ParticleSpawner
+        {
+            config = SystemAPI.GetSingleton<ParticleConfiguration>()
+        };
+
 
         // if (resource.holder == null && resource.stacked == false)
         foreach (var (resource, transform, velocity, e) in SystemAPI.Query<
@@ -248,6 +253,10 @@ partial struct ResourceFallenSystem : ISystem
                 position.y = floorY;
                 if (math.abs(position.x) > field.Size.x * .4f)
                 {
+                    for (int i = 0; i < 5; i++)
+                    {
+                        particleSpawner.SpawnParticleSpawnFlash(ref random, ecb, position + random.NextFloat3Direction(), random.NextFloat3Direction());
+                    }
                     for (int i = 0; i < config.beesPerResource; i++)
                     {
                         BeeSpawnSystem.SpawnBee(ref ecb, ref random, position, position.x < 0 ? 0 : 1, beeConfig);

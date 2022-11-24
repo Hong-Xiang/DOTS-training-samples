@@ -1,4 +1,5 @@
-﻿public enum ParticleType {
-	Blood,
-	SpawnFlash
+﻿public enum ParticleType : uint
+{
+    Blood,
+    SpawnFlash
 }

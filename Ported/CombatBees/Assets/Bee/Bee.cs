@@ -325,9 +325,12 @@ public partial struct BeeNewTargetSystem : ISystem
     }
 }
 
+[BurstCompile]
 partial struct EnemyTargetVelocityUpdateJob : IJobEntity
 {
     [ReadOnly] public ComponentLookup<Velocity> VelocityFromEntity;
+
+    [BurstCompile]
     void Execute(ref EnemyTarget target)
     {
         if (VelocityFromEntity.HasComponent(target.BeeEntity))
@@ -340,6 +343,7 @@ partial struct EnemyTargetVelocityUpdateJob : IJobEntity
 
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
 [UpdateBefore(typeof(BeeEnemyTargetSystem))]
+[BurstCompile]
 partial struct BeeEnemyTargetVelocityUpdateSystem : ISystem
 {
     ComponentLookup<Velocity> VelocityFromEntity;
@@ -352,6 +356,7 @@ partial struct BeeEnemyTargetVelocityUpdateSystem : ISystem
     {
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         VelocityFromEntity.Update(ref state);
@@ -372,9 +377,10 @@ partial struct BeeEnemyTargetJob : IJobEntity
     [ReadOnly] public ComponentLookup<HoldingResource> HoldingResourceFromEntity;
 
     [ReadOnly] public BeeConfiguration config;
+    [ReadOnly] public ParticleSpawner particleSpawner;
     public EntityCommandBuffer.ParallelWriter ecb;
     public float deltaTime;
-
+    public int particleCount;
     void Execute(ref BeeRandom random,
                  ref BeeComponent bee,
                  ref Velocity velocity,
@@ -409,6 +415,17 @@ partial struct BeeEnemyTargetJob : IJobEntity
                 velocity.Value += normalizedDelta * (config.attackForce * deltaTime);
                 if (distance < config.hitDistance)
                 {
+                    for (int i = 0; i < particleCount; i++)
+                    {
+                        particleSpawner.SpawnParticleBlood(
+                                                ref random.random,
+                                                inQueryIndex,
+                                                ecb,
+                                                enemyPosition,
+                                                velocity.Value * .5f + random.random.NextFloat3Direction() * 6f
+                                            );
+                    }
+
                     // ParticleManager.SpawnParticle(bee.enemyTarget.position, ParticleType.Blood, bee.velocity * .35f, 2f, 6);
                     ecb.AddComponent(inQueryIndex, target.BeeEntity, new Dying { Timer = 1f });
 
@@ -440,16 +457,18 @@ public partial struct BeeEnemyTargetSystem : ISystem
     ComponentLookup<LocalToWorldTransform> LocalToWorldTransformFromEntity;
     ComponentLookup<Dying> DeathFromEntity;
     ComponentLookup<HoldingResource> HoldingResourceFromEntity;
+    EntityQuery ParticleQuery;
 
 
 
-    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
+
         random = Unity.Mathematics.Random.CreateFromIndex(233);
         LocalToWorldTransformFromEntity = state.GetComponentLookup<LocalToWorldTransform>(true);
         DeathFromEntity = state.GetComponentLookup<Dying>(true);
         HoldingResourceFromEntity = state.GetComponentLookup<HoldingResource>(true);
+        ParticleQuery = state.GetEntityQuery(typeof(Particle));
     }
 
     [BurstCompile]
@@ -462,6 +481,11 @@ public partial struct BeeEnemyTargetSystem : ISystem
     {
 
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
+        var particleConfig = SystemAPI.GetSingleton<ParticleConfiguration>();
+        var particleSpawner = new ParticleSpawner
+        {
+            config = particleConfig
+        };
         var ecbSingleton = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
         LocalToWorldTransformFromEntity.Update(ref state);
@@ -469,15 +493,18 @@ public partial struct BeeEnemyTargetSystem : ISystem
         HoldingResourceFromEntity.Update(ref state);
 
         var deltaTime = SystemAPI.Time.DeltaTime;
+        var particleCount = ParticleQuery.CalculateEntityCount();
 
         state.Dependency = new BeeEnemyTargetJob
         {
             LocalToWorldTransformFromEntity = LocalToWorldTransformFromEntity,
             DeathFromEntity = DeathFromEntity,
             HoldingResourceFromEntity = HoldingResourceFromEntity,
+            particleSpawner = particleSpawner,
             config = config,
             ecb = ecb.AsParallelWriter(),
             deltaTime = deltaTime,
+            particleCount = particleCount > particleConfig.maxParticleCount ? 0 : 5,
         }.ScheduleParallel(state.Dependency);
     }
 }
@@ -583,6 +610,7 @@ partial struct BeeResourceTargetJob : IJobEntity
 
 
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
+[BurstCompile]
 public partial struct BeeResourceTargetSystem : ISystem
 {
     Unity.Mathematics.Random random;
@@ -1098,15 +1126,17 @@ public partial struct BeeDeathSystem : ISystem
 
 
 [WithNone(typeof(Dying))]
+[BurstCompile]
 partial struct AliveBeeSmoothMovePresentJob : IJobEntity
 {
     [ReadOnly] public BeeConfiguration config;
 
+    [BurstCompile]
     void Execute(ref PostTransformMatrix matrix,
-                 in BeeComponent bee,
-                 in Velocity velocity,
-                 in SmoothPositionVelociy smooth
-    )
+                     in BeeComponent bee,
+                     in Velocity velocity,
+                     in SmoothPositionVelociy smooth
+        )
     {
         float size = bee.size;
         float3 scale = math.float3(size);
@@ -1124,18 +1154,20 @@ partial struct AliveBeeSmoothMovePresentJob : IJobEntity
     }
 }
 
+[BurstCompile]
 partial struct DyingBeeSmoothMovePresentJob : IJobEntity
 {
     [ReadOnly] public BeeConfiguration config;
 
+    [BurstCompile]
     void Execute(ref PostTransformMatrix matrix,
-                 ref URPMaterialPropertyBaseColor color,
-                 in BeeComponent bee,
-                 in Team team,
-                 in Dying dying,
-                 in Velocity velocity,
-                 in SmoothPositionVelociy smooth
-    )
+                     ref URPMaterialPropertyBaseColor color,
+                     in BeeComponent bee,
+                     in Team team,
+                     in Dying dying,
+                     in Velocity velocity,
+                     in SmoothPositionVelociy smooth
+        )
     {
 
         quaternion rotation = quaternion.identity;
@@ -1151,6 +1183,7 @@ partial struct DyingBeeSmoothMovePresentJob : IJobEntity
     }
 }
 
+[BurstCompile]
 partial struct BeeSmoothMovePresentSystem : ISystem
 {
     [BurstCompile]
