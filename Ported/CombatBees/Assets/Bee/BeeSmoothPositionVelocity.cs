@@ -59,10 +59,10 @@ readonly partial struct SmoothPositionVelocityAspect : IAspect
     }
 
     [BurstCompile]
-    public static void AddSmoothPositionVelocity(ref EntityCommandBuffer ecb, in Entity self)
+    public static void AddSmoothPositionVelocity(ref EntityCommandBuffer.ParallelWriter ecb, in Entity self, int sortKey)
     {
-        ecb.AddComponent(self, new SmoothPosition { });
-        ecb.AddComponent(self, new SmoothVelocity { });
+        ecb.AddComponent(sortKey, self, new SmoothPosition { });
+        ecb.AddComponent(sortKey, self, new SmoothVelocity { });
     }
 }
 

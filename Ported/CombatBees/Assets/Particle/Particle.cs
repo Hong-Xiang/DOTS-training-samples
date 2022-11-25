@@ -32,31 +32,32 @@ partial struct ParticleSpawner
 
     // [BurstCompile]
     public void SpawnParticleSpawnFlash(ref Random random,
-                                        EntityCommandBuffer ecb,
+                                        EntityCommandBuffer.ParallelWriter ecb,
+                                        int sortKey,
                                         float3 position,
                                         float3 velocity)
     {
-        var instance = ecb.Instantiate(config.particlePrefab);
+        var instance = ecb.Instantiate(sortKey, config.particlePrefab);
 
-        ecb.SetComponent(instance, new LocalToWorldTransform
+        ecb.SetComponent(sortKey, instance, new LocalToWorldTransform
         {
             Value = UniformScaleTransform.FromPosition(position)
         });
-        ecb.AddComponent(instance, new PostTransformMatrix { Value = float4x4.identity });
-        ecb.AddComponent(instance, new Velocity { Value = velocity });
+        ecb.AddComponent(sortKey, instance, new PostTransformMatrix { Value = float4x4.identity });
+        ecb.AddComponent(sortKey, instance, new Velocity { Value = velocity });
 
-        ecb.AddComponent(instance, new Particle
+        ecb.AddComponent(sortKey, instance, new Particle
         {
             size = math.float3(random.NextFloat(1f, 2f)),
         });
-        ecb.AddComponent(instance, new ParticleLife
+        ecb.AddComponent(sortKey, instance, new ParticleLife
         {
             normalizedLife = 1f,
             Duration = random.NextFloat(.25f, .5f)
         });
-        ecb.AddComponent(instance, new SpawnParticle { });
+        ecb.AddComponent(sortKey, instance, new SpawnParticle { });
 
-        ecb.AddComponent(instance, new URPMaterialPropertyBaseColor { Value = math.float4(1f) });
+        ecb.AddComponent(sortKey, instance, new URPMaterialPropertyBaseColor { Value = math.float4(1f) });
     }
 
     // [BurstCompile]

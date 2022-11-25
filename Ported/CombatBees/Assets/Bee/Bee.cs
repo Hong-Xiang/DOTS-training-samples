@@ -912,31 +912,31 @@ partial struct BeeSpawnSystem : ISystem
 
     [BurstCompile]
 
-    public static void SpawnBee(ref EntityCommandBuffer ECB, ref Unity.Mathematics.Random random, in float3 pos, int team, in BeeConfiguration config)
+    public static void SpawnBee(ref EntityCommandBuffer.ParallelWriter ECB, ref Unity.Mathematics.Random random, in float3 pos, int team, in BeeConfiguration config, int sortKey)
     {
-        var instance = ECB.Instantiate(config.BeePrefab);
+        var instance = ECB.Instantiate(sortKey, config.BeePrefab);
         var size = random.NextFloat(config.minBeeSize, config.maxBeeSize);
-        ECB.SetComponent(instance, new LocalToWorldTransform
+        ECB.SetComponent(sortKey, instance, new LocalToWorldTransform
         {
             Value = UniformScaleTransform.FromPosition(pos).ApplyScale(size)
         });
 
         var velocity = random.NextFloat3Direction() * config.maxSpawnSpeed;
-        ECB.AddComponent(instance, new Velocity { Value = velocity });
+        ECB.AddComponent(sortKey, instance, new Velocity { Value = velocity });
 
-        ECB.AddSharedComponent(instance, new Team { Value = team });
+        ECB.AddSharedComponent(sortKey, instance, new Team { Value = team });
         var color = team == 0 ? config.teamAColor : config.teamBColor;
-        ECB.AddComponent(instance, new URPMaterialPropertyBaseColor { Value = math.float4(color.r, color.g, color.b, color.a) });
-        ECB.AddComponent(instance, new BeeTag());
-        ECB.AddComponent(instance, new BeeSize
+        ECB.AddComponent(sortKey, instance, new URPMaterialPropertyBaseColor { Value = math.float4(color.r, color.g, color.b, color.a) });
+        ECB.AddComponent(sortKey, instance, new BeeTag());
+        ECB.AddComponent(sortKey, instance, new BeeSize
         {
             size = 1f,
         });
         // ECB.AddComponent(instance, new SmoothPositionVelocityAspect { });
-        SmoothPositionVelocityAspect.AddSmoothPositionVelocity(ref ECB, instance);
-        ECB.AddComponent(instance, new PostTransformMatrix { Value = float4x4.identity });
-        ECB.AddComponent(instance, new BeeRandom { random = Unity.Mathematics.Random.CreateFromIndex(random.NextUInt()) });
-        ECB.AddComponent(instance, new Attacking { isAttacking = false });
+        SmoothPositionVelocityAspect.AddSmoothPositionVelocity(ref ECB, instance, sortKey);
+        ECB.AddComponent(sortKey, instance, new PostTransformMatrix { Value = float4x4.identity });
+        ECB.AddComponent(sortKey, instance, new BeeRandom { random = Unity.Mathematics.Random.CreateFromIndex(random.NextUInt()) });
+        ECB.AddComponent(sortKey, instance, new Attacking { isAttacking = false });
     }
     public void OnCreate(ref SystemState state)
     {
@@ -956,7 +956,7 @@ partial struct BeeSpawnSystem : ISystem
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
 
         var ecbSingleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
-        var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
+        var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged).AsParallelWriter();
         var field = SystemAPI.GetSingleton<FieldComponent>();
 
         for (int i = 0; i < config.startBeeCount; i++)
@@ -964,7 +964,7 @@ partial struct BeeSpawnSystem : ISystem
             int team = i % 2;
 
             Vector3 pos = Vector3.right * (-field.Size.x * .4f + field.Size.x * .8f * team);
-            SpawnBee(ref ecb, ref random, pos, team, config);
+            SpawnBee(ref ecb, ref random, pos, team, config, i);
         }
 
         state.Enabled = false;
