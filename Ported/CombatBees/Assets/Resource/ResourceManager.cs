@@ -7,21 +7,28 @@ using Unity.Transforms;
 using Unity.Burst;
 using Unity.Collections;
 
+[BurstCompile]
+[RequireMatchingQueriesForUpdate]
 partial struct ResourceSpawnSystem : ISystem
 {
     bool isFirstFrame;
     Unity.Mathematics.Random random;
 
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
         isFirstFrame = true;
         random = Unity.Mathematics.Random.CreateFromIndex(42);
+
+        state.RequireForUpdate<ResourceConfiguration>();
+        state.RequireForUpdate<Grid>();
     }
 
     public void OnDestroy(ref SystemState state)
     {
     }
 
+    [BurstCompile]
     void SpawnResource(ref EntityCommandBuffer ECB, float3 position, float scale, Entity prefab)
     {
         var instance = ECB.Instantiate(prefab);
@@ -33,6 +40,7 @@ partial struct ResourceSpawnSystem : ISystem
         ECB.AddComponent(instance, new Velocity { Value = float3.zero });
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         var ecbSingleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
@@ -76,15 +84,20 @@ partial struct ResourceSpawnSystem : ISystem
 }
 
 [WithAll(typeof(ResourceComponent))]
+[BurstCompile]
 partial struct ResourceFollowHolderJob : IJobEntity
 {
-    [ReadOnly] public ComponentLookup<BeeComponent> BeeFromEntity;
+    [ReadOnly] public ComponentLookup<BeeSize> BeeSizeFromEntity;
     [NativeDisableParallelForRestriction]
     public ComponentLookup<LocalToWorldTransform> LocalToWorldTransformFromEntity;
     [ReadOnly] public ComponentLookup<Velocity> VelocityFromEntity;
     public EntityCommandBuffer ECB;
     public ResourceConfiguration config;
-    public void Execute(ref Velocity velocity, in TransformAspect transform, in ResourceHolder holder, in Entity e)
+    [BurstCompile]
+    public void Execute(ref Velocity velocity,
+                        in TransformAspect transform,
+                        in ResourceHolder holder,
+                        in Entity e)
     {
         if ((!SystemAPI.Exists(holder.Holder)) || SystemAPI.HasComponent<Dying>(holder.Holder))
         {
@@ -92,9 +105,9 @@ partial struct ResourceFollowHolderJob : IJobEntity
         }
         else
         {
-            var bee = BeeFromEntity[holder.Holder];
+            var holderSize = BeeSizeFromEntity[holder.Holder].size;
             var holderPosition = LocalToWorldTransformFromEntity[holder.Holder].Value.Position;
-            float3 targetPos = holderPosition - math.float3(Vector3.up) * (config.resourceSize + bee.size) * .5f;
+            float3 targetPos = holderPosition - math.float3(Vector3.up) * (config.resourceSize + holderSize) * .5f;
             transform.Position = math.lerp(transform.Position, targetPos, config.carryStiffness * SystemAPI.Time.DeltaTime);
             velocity.Value = VelocityFromEntity[holder.Holder].Value;
         }
@@ -103,18 +116,21 @@ partial struct ResourceFollowHolderJob : IJobEntity
 
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
 [BurstCompile]
+[RequireMatchingQueriesForUpdate]
 partial struct ResourceFollowHolderSystem : ISystem
 {
-    ComponentLookup<BeeComponent> BeeFromEntity;
+    ComponentLookup<BeeSize> BeeSizeFromEntity;
     ComponentLookup<LocalToWorldTransform> LocalToWorldTransformFromEntity;
     ComponentLookup<Velocity> VelocityFromEntity;
 
     [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
-        BeeFromEntity = state.GetComponentLookup<BeeComponent>(true);
+        BeeSizeFromEntity = state.GetComponentLookup<BeeSize>(true);
         LocalToWorldTransformFromEntity = state.GetComponentLookup<LocalToWorldTransform>(true);
         VelocityFromEntity = state.GetComponentLookup<Velocity>(true);
+
+        state.RequireForUpdate<ResourceConfiguration>();
     }
 
     public void OnDestroy(ref SystemState state)
@@ -128,7 +144,7 @@ partial struct ResourceFollowHolderSystem : ISystem
         var config = SystemAPI.GetSingleton<ResourceConfiguration>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
 
-        BeeFromEntity.Update(ref state);
+        BeeSizeFromEntity.Update(ref state);
         LocalToWorldTransformFromEntity.Update(ref state);
         VelocityFromEntity.Update(ref state);
 
@@ -142,7 +158,7 @@ partial struct ResourceFollowHolderSystem : ISystem
             }
             else
             {
-                var bee = BeeFromEntity[holder.Holder];
+                var bee = BeeSizeFromEntity[holder.Holder];
                 var holderPosition = LocalToWorldTransformFromEntity[holder.Holder].Value.Position;
                 float3 targetPos = holderPosition - math.float3(Vector3.up) * (config.resourceSize + bee.size) * .5f;
                 transform.Position = math.lerp(transform.Position, targetPos, config.carryStiffness * SystemAPI.Time.DeltaTime);
@@ -181,14 +197,20 @@ struct ResourceStackHoldLogic
 
 
 
-// [BurstCompile]
+[BurstCompile]
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
+[RequireMatchingQueriesForUpdate]
 partial struct ResourceFallenSystem : ISystem
 {
     Unity.Mathematics.Random random;
     public void OnCreate(ref SystemState state)
     {
         random = Unity.Mathematics.Random.CreateFromIndex(42);
+
+        state.RequireForUpdate<FieldComponent>();
+        state.RequireForUpdate<Grid>();
+        state.RequireForUpdate<ResourceConfiguration>();
+        state.RequireForUpdate<BeeConfiguration>();
     }
 
     public void OnDestroy(ref SystemState state)
@@ -196,7 +218,7 @@ partial struct ResourceFallenSystem : ISystem
     }
 
 
-    // [BurstCompile]
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         var ecbSingleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
@@ -212,6 +234,7 @@ partial struct ResourceFallenSystem : ISystem
 
         var beeConfig = SystemAPI.GetSingleton<BeeConfiguration>();
         var field = SystemAPI.GetSingleton<FieldComponent>();
+
 
         var particleSpawner = new ParticleSpawner
         {
@@ -284,27 +307,33 @@ partial struct ResourceFallenSystem : ISystem
 
 
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup), OrderLast = true)]
+[RequireMatchingQueriesForUpdate]
+[BurstCompile]
 partial struct ResourceOverHeightRemoveSystem : ISystem
 {
     public void OnCreate(ref SystemState state)
     {
+        state.RequireForUpdate<ResourceConfiguration>();
+        state.RequireForUpdate<FieldComponent>();
     }
 
     public void OnDestroy(ref SystemState state)
     {
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         var ecbSingleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
         var config = SystemAPI.GetSingleton<ResourceConfiguration>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
+        var field = SystemAPI.GetSingleton<FieldComponent>();
         // if (resource.holder == null && resource.stacked == false)
         foreach (var (resource, stacked, e) in SystemAPI.Query<
             ResourceComponent,
             Stacked>().WithEntityAccess())
         {
-            if (stacked.Index * config.resourceSize >= Field.size.y)
+            if (stacked.Index * config.resourceSize >= field.Size.y)
             {
                 ecb.DestroyEntity(e);
             }

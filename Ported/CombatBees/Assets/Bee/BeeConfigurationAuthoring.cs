@@ -60,7 +60,7 @@ public class BeeConfigurationAuthoring : MonoBehaviour
     }
 }
 
-public partial struct BeeConfiguration : IComponentData
+public struct BeeConfiguration : IComponentData
 {
     public Entity BeePrefab;
     public Color teamAColor;

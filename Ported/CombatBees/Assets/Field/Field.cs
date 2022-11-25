@@ -4,6 +4,7 @@ using UnityEngine;
 using Unity.Mathematics;
 using Unity.Entities;
 using Unity.Collections;
+using Unity.Burst;
 
 public static class Field
 {
@@ -13,6 +14,7 @@ public static class Field
 
 }
 
+[BurstCompile]
 public struct Grid : IComponentData
 {
     public int3 Shape;
@@ -25,19 +27,25 @@ public struct Grid : IComponentData
         return result;
     }
 
+    [BurstCompile]
     public int3 PositionToIndex(float3 pos)
     {
         return math.int3(math.floor((pos - minPosition) / Step));
     }
+    [BurstCompile]
     public float3 IndexToPosition(int3 idx)
     {
         return (math.float3(idx) + .5f) * Step + minPosition;
 
     }
+
+    [BurstCompile]
     public float3 LocalToWorld(float3 local)
     {
         return local * Size + minPosition;
     }
+
+    [BurstCompile]
     public int3 ToInboundIndex(int3 idx)
     {
         return math.min(math.max(idx, math.int3(0)), Shape - 1);
@@ -70,10 +78,13 @@ partial struct FieldDiscritizationSystem : ISystem
     public void OnCreate(ref SystemState state)
     {
         discritizationType = state.EntityManager.CreateArchetype(typeof(Grid));
+        state.RequireForUpdate<ResourceConfiguration>();
+        state.RequireForUpdate<FieldComponent>();
     }
 
     public void OnDestroy(ref SystemState state)
     {
+
     }
 
     public void OnUpdate(ref SystemState state)
@@ -81,11 +92,12 @@ partial struct FieldDiscritizationSystem : ISystem
         var config = SystemAPI.GetSingleton<ResourceConfiguration>();
         var discritization = state.EntityManager.CreateEntity(discritizationType);
         var heightBuffer = state.EntityManager.AddBuffer<StackHeight>(discritization);
+        var field = SystemAPI.GetSingleton<FieldComponent>();
         var grid = new Grid
         {
-            Shape = math.int3(math.ceil(math.float3(Field.size) / config.resourceSize)),
-            Size = Field.size,
-            minPosition = -math.float3(Field.size) * .5f,
+            Shape = math.int3(math.ceil(math.float3(field.Size) / config.resourceSize)),
+            Size = field.Size,
+            minPosition = -math.float3(field.Size) * .5f,
         };
         state.EntityManager.SetComponentData(discritization, grid);
         heightBuffer.Resize(grid.Shape.x * grid.Shape.z, NativeArrayOptions.ClearMemory);

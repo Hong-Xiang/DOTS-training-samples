@@ -99,6 +99,7 @@ partial struct ParticleSpawner
 
 
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
+[RequireMatchingQueriesForUpdate]
 partial struct ParticleSpawnSystem : ISystem
 {
     EntityQuery ParticleQuery;
@@ -109,6 +110,8 @@ partial struct ParticleSpawnSystem : ISystem
         state.Enabled = false;
         ParticleQuery = state.GetEntityQuery(typeof(Particle));
         random = Unity.Mathematics.Random.CreateFromIndex(42);
+
+        state.RequireForUpdate<ParticleConfiguration>();
     }
 
     public void OnDestroy(ref SystemState state)
@@ -192,11 +195,13 @@ partial struct ParticleSimulationJob : IJobEntity
 
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
 [BurstCompile]
+[RequireMatchingQueriesForUpdate]
 partial struct ParticleSimulationSystem : ISystem
 {
 
     public void OnCreate(ref SystemState state)
     {
+        state.RequireForUpdate<FieldComponent>();
     }
 
     public void OnDestroy(ref SystemState state)
@@ -239,6 +244,7 @@ partial struct ParticleRemoveJob : IJobEntity
 
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
 [BurstCompile]
+[RequireMatchingQueriesForUpdate]
 partial struct ParticleRemoveSystem : ISystem
 {
     public void OnCreate(ref SystemState state)
@@ -324,10 +330,12 @@ partial struct StuckedParticlePresentJob : IJobEntity
 
 // TODO: 处理Z方向scale不稳定的问题
 [BurstCompile]
+[RequireMatchingQueriesForUpdate]
 partial struct ParticlePresentSystem : ISystem
 {
     public void OnCreate(ref SystemState state)
     {
+        state.RequireForUpdate<ParticleConfiguration>();
     }
 
     public void OnDestroy(ref SystemState state)
