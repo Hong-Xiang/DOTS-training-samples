@@ -6,8 +6,9 @@ using Unity.Collections;
 using Unity.Rendering;
 using Unity.Jobs;
 
-struct Attacking : IComponentData, IEnableableComponent
+struct Attacking : IComponentData
 {
+    public bool isAttacking;
 }
 
 struct SmoothPosition : IComponentData
@@ -67,31 +68,22 @@ readonly partial struct SmoothPositionVelocityAspect : IAspect
 
 [BurstCompile]
 [WithAll(typeof(BeeTag))]
-[WithNone(typeof(Attacking))]
-partial struct NormalBeeSmoothRotationJob : IJobEntity
+partial struct BeeSmoothRotationJob : IJobEntity
 {
     [ReadOnly] public BeeConfiguration config;
     public float deltaTime;
 
     [BurstCompile]
-    void Execute(ref SmoothPositionVelocityAspect smoothAspect)
+    void Execute(ref SmoothPositionVelocityAspect smoothAspect, in Attacking attacking)
     {
-        smoothAspect.UpdateNormal(deltaTime, config.rotationStiffness);
-    }
-}
-
-[BurstCompile]
-[WithAll(typeof(BeeTag))]
-[WithAll(typeof(Attacking))]
-partial struct AttackingBeeSmoothRotationJob : IJobEntity
-{
-    [ReadOnly] public BeeConfiguration config;
-    public float deltaTime;
-
-    [BurstCompile]
-    void Execute(ref SmoothPositionVelocityAspect smoothAspect)
-    {
-        smoothAspect.UpdateAttacking();
+        if (attacking.isAttacking)
+        {
+            smoothAspect.UpdateAttacking();
+        }
+        else
+        {
+            smoothAspect.UpdateNormal(deltaTime, config.rotationStiffness);
+        }
     }
 }
 
@@ -118,12 +110,7 @@ partial struct BeeSmoothRotationSystem : ISystem
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
         var deltaTime = SystemAPI.Time.DeltaTime;
 
-        state.Dependency = new AttackingBeeSmoothRotationJob
-        {
-            config = config,
-            deltaTime = deltaTime
-        }.ScheduleParallel(state.Dependency);
-        state.Dependency = new NormalBeeSmoothRotationJob
+        state.Dependency = new BeeSmoothRotationJob
         {
             config = config,
             deltaTime = deltaTime

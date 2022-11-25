@@ -330,6 +330,7 @@ partial struct BeeEnemyTargetJob : IJobEntity
     public int particleCount;
     [BurstCompile]
     void Execute(ref BeeRandom random,
+                 ref Attacking attacking,
                  ref Velocity velocity,
                  in TransformAspect transform,
                  in EnemyTargetAspect enemyTargetAspect,
@@ -342,7 +343,7 @@ partial struct BeeEnemyTargetJob : IJobEntity
         // 方案2：在Destory Entity的时候删除所有引用，保证系统的一致性
         // 由于没有反向index，方案2需要完整遍历所有Entity，性能不合适，因此这里用了方案1
 
-        ecb.SetComponentEnabled<Attacking>(inQueryIndex, beeEntity, false);
+        attacking.isAttacking = false;
         if ((!LocalToWorldTransformFromEntity.HasComponent(enemyTargetAspect.BeeEntity)) || DeathFromEntity.HasComponent(enemyTargetAspect.BeeEntity))
         {
             enemyTargetAspect.RemoveTarget(ref ecb, inQueryIndex);
@@ -360,8 +361,7 @@ partial struct BeeEnemyTargetJob : IJobEntity
             }
             else
             {
-                // bee.isAttacking = true;
-                ecb.SetComponentEnabled<Attacking>(inQueryIndex, beeEntity, true);
+                attacking.isAttacking = true;
                 velocity.Value += normalizedDelta * (config.attackForce * deltaTime);
                 if (distance < config.hitDistance)
                 {
@@ -376,7 +376,6 @@ partial struct BeeEnemyTargetJob : IJobEntity
 
                     // ParticleManager.SpawnParticle(bee.enemyTarget.position, ParticleType.Blood, bee.velocity * .35f, 2f, 6);
                     ecb.AddComponent(inQueryIndex, enemyTargetAspect.BeeEntity, new Dying { Timer = 1f });
-
                     ecb.SetComponent(inQueryIndex, enemyTargetAspect.BeeEntity, new Velocity
                     {
                         Value = enemyTargetAspect.Velocity * .5f
@@ -937,8 +936,7 @@ partial struct BeeSpawnSystem : ISystem
         SmoothPositionVelocityAspect.AddSmoothPositionVelocity(ref ECB, instance);
         ECB.AddComponent(instance, new PostTransformMatrix { Value = float4x4.identity });
         ECB.AddComponent(instance, new BeeRandom { random = Unity.Mathematics.Random.CreateFromIndex(random.NextUInt()) });
-        ECB.AddComponent(instance, new Attacking { });
-        ECB.SetComponentEnabled<Attacking>(instance, false);
+        ECB.AddComponent(instance, new Attacking { isAttacking = false });
     }
     public void OnCreate(ref SystemState state)
     {
