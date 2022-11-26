@@ -481,7 +481,7 @@ partial struct BeeResourceTargetJob : IJobEntity
              [EntityInQueryIndex] int inQueryIndex)
     {
         // Resource resource = bee.resourceTarget;
-        Entity resourceEntity = resourceTarget.ResourceEntity;
+        var resourceEntity = resourceTarget.ResourceEntity;
         // if (resource.holder == null)
         if (!ResourceHolderFromEntity.HasComponent(resourceEntity))
         {
@@ -564,8 +564,6 @@ partial struct BeeResourceTargetJob : IJobEntity
 [BurstCompile]
 partial struct BeeResourceTargetSystem : ISystem
 {
-    Unity.Mathematics.Random random;
-
     ComponentLookup<ResourceHolder> ResourceHolderFromEntity;
     ComponentLookup<LocalToWorldTransform> LocalToWorldTransformFromEntity;
     ComponentLookup<Stacked> StackedFromEntity;
@@ -574,7 +572,6 @@ partial struct BeeResourceTargetSystem : ISystem
     [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
-        random = new Unity.Mathematics.Random(233);
         ResourceHolderFromEntity = state.GetComponentLookup<ResourceHolder>(true);
         LocalToWorldTransformFromEntity = state.GetComponentLookup<LocalToWorldTransform>(true);
         StackedFromEntity = state.GetComponentLookup<Stacked>(true);

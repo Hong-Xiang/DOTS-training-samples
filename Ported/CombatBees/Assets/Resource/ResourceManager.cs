@@ -59,6 +59,7 @@ partial struct ResourceSpawnSystem : ISystem
                     );
                 SpawnResource(ref ecb, pos, config.resourceSize, config.resourcePrefab);
             }
+
             isFirstFrame = false;
         }
 
@@ -86,16 +87,16 @@ partial struct ResourceSpawnSystem : ISystem
 partial struct ResourceFollowHolderJob : IJobEntity
 {
     [ReadOnly] public ComponentLookup<BeeSize> BeeSizeFromEntity;
-    [NativeDisableParallelForRestriction]
-    public ComponentLookup<LocalToWorldTransform> LocalToWorldTransformFromEntity;
+    [NativeDisableParallelForRestriction] public ComponentLookup<LocalToWorldTransform> LocalToWorldTransformFromEntity;
     [ReadOnly] public ComponentLookup<Velocity> VelocityFromEntity;
     public EntityCommandBuffer ECB;
     public ResourceConfiguration config;
+
     [BurstCompile]
     public void Execute(ref Velocity velocity,
-                        in TransformAspect transform,
-                        in ResourceHolder holder,
-                        in Entity e)
+        in TransformAspect transform,
+        in ResourceHolder holder,
+        in Entity e)
     {
         if ((!SystemAPI.Exists(holder.Holder)) || SystemAPI.HasComponent<Dying>(holder.Holder))
         {
@@ -106,7 +107,8 @@ partial struct ResourceFollowHolderJob : IJobEntity
             var holderSize = BeeSizeFromEntity[holder.Holder].size;
             var holderPosition = LocalToWorldTransformFromEntity[holder.Holder].Value.Position;
             float3 targetPos = holderPosition - math.float3(Vector3.up) * (config.resourceSize + holderSize) * .5f;
-            transform.Position = math.lerp(transform.Position, targetPos, config.carryStiffness * SystemAPI.Time.DeltaTime);
+            transform.Position = math.lerp(transform.Position, targetPos,
+                config.carryStiffness * SystemAPI.Time.DeltaTime);
             velocity.Value = VelocityFromEntity[holder.Holder].Value;
         }
     }
@@ -147,9 +149,9 @@ partial struct ResourceFollowHolderSystem : ISystem
         VelocityFromEntity.Update(ref state);
 
 
-        foreach (var (resource, holder, transform, velocity, e) in SystemAPI.Query<ResourceComponent, ResourceHolder, TransformAspect, RefRW<Velocity>>().WithEntityAccess())
+        foreach (var (resource, holder, transform, velocity, e) in SystemAPI
+                     .Query<ResourceComponent, ResourceHolder, TransformAspect, RefRW<Velocity>>().WithEntityAccess())
         {
-
             if ((!SystemAPI.Exists(holder.Holder)) || SystemAPI.HasComponent<Dying>(holder.Holder))
             {
                 ecb.RemoveComponent<ResourceHolder>(e);
@@ -159,7 +161,8 @@ partial struct ResourceFollowHolderSystem : ISystem
                 var bee = BeeSizeFromEntity[holder.Holder];
                 var holderPosition = LocalToWorldTransformFromEntity[holder.Holder].Value.Position;
                 float3 targetPos = holderPosition - math.float3(Vector3.up) * (config.resourceSize + bee.size) * .5f;
-                transform.Position = math.lerp(transform.Position, targetPos, config.carryStiffness * SystemAPI.Time.DeltaTime);
+                transform.Position = math.lerp(transform.Position, targetPos,
+                    config.carryStiffness * SystemAPI.Time.DeltaTime);
                 velocity.ValueRW.Value = VelocityFromEntity[holder.Holder].Value;
             }
         }
@@ -187,6 +190,7 @@ struct ResourceStackHoldLogic
     {
         return ResourceHolderFromEntity.HasComponent(resourceEntity);
     }
+
     public bool IsGrabable(in Entity resourceEntity)
     {
         return false;
@@ -194,14 +198,19 @@ struct ResourceStackHoldLogic
 }
 
 [BurstCompile]
+[WithNone(typeof(ResourceHolder))]
+[WithNone(typeof(Stacked))]
+[WithNone(typeof(Stacking))]
+[WithAll(typeof(ResourceComponent))]
 partial struct ResourceFallenJob : IJobEntity
 {
     [ReadOnly] public Grid grid;
     [ReadOnly] public ResourceConfiguration config;
     [ReadOnly] public BeeConfiguration beeConfig;
+
     [ReadOnly] public FieldComponent field;
-    // [ReadOnly] public NativeArray<int> heightData;
-    public int2 shape;
+
+    [ReadOnly] public NativeArray<int> heightData;
     public ParticleSpawner particleSpawner;
     public EntityCommandBuffer.ParallelWriter ecb;
     public Unity.Mathematics.Random random;
@@ -209,9 +218,9 @@ partial struct ResourceFallenJob : IJobEntity
 
 
     [BurstCompile]
-    void Execute(ref TransformAspect transform, ref Velocity velocity, in Entity e, [EntityInQueryIndex] int inQueryIndex)
+    void Execute(ref TransformAspect transform, ref Velocity velocity, in Entity e,
+        [EntityInQueryIndex] int inQueryIndex)
     {
-
         var position = transform.Position;
 
         position = math.lerp(position, grid.NearestSnappedPos(position), config.snapStiffness * deltaTime);
@@ -222,11 +231,16 @@ partial struct ResourceFallenJob : IJobEntity
 
 
         var idx = grid.ToInboundIndex(grid.PositionToIndex(position));
+        var stackHeightMap = new NativeArray2DProxy<int>
+        {
+            shape = math.int2(grid.Shape.x, grid.Shape.z),
+            data = heightData
+        };
 
         // 当resource比较多的时候，可能同时存在多个resource在同一个stack上，此时下面的floorY判断逻辑会出问题
-        // float floorY = grid.bottom + stackHeight[idx.x, idx.z] * config.resourceSize;
-        float floorY = grid.bottom + 0;
-        for (int j = 0; j < 3; j++)
+        var floorY = grid.bottom + stackHeightMap[idx.x, idx.z] * config.resourceSize;
+        // var floorY = grid.bottom + 0;
+        for (var j = 0; j < 3; j++)
         {
             if (math.abs(position[j]) > field.Size[j] * .5f)
             {
@@ -236,6 +250,7 @@ partial struct ResourceFallenJob : IJobEntity
                 v[(j + 2) % 3] *= .8f;
             }
         }
+
         if (position.y <= floorY)
         {
             position.y = floorY;
@@ -243,27 +258,28 @@ partial struct ResourceFallenJob : IJobEntity
             {
                 for (int i = 0; i < 5; i++)
                 {
-                    particleSpawner.SpawnParticleSpawnFlash(ref random, ecb, inQueryIndex, position + random.NextFloat3Direction(), random.NextFloat3Direction());
+                    particleSpawner.SpawnParticleSpawnFlash(ref random, ecb, inQueryIndex,
+                        position + random.NextFloat3Direction(), random.NextFloat3Direction());
                 }
+
                 for (int i = 0; i < config.beesPerResource; i++)
                 {
-                    BeeSpawnSystem.SpawnBee(ref ecb, ref random, position, position.x < 0 ? 0 : 1, beeConfig, inQueryIndex);
+                    BeeSpawnSystem.SpawnBee(ref ecb, ref random, position, position.x < 0 ? 0 : 1, beeConfig,
+                        inQueryIndex);
                 }
+
                 ecb.DestroyEntity(inQueryIndex, e);
-                // Resource Spawn Bee System
             }
             else
             {
-                // resource.stacked = true;
                 ecb.AddComponent(inQueryIndex, e, new Stacked
                 {
-                    // Index = stackHeight[idx.x, idx.z]
-                    Index = 0
+                    Index = stackHeightMap[idx.x, idx.z]
                 });
                 // stackHeight[idx.x, idx.z]++;
-                // DeleteResource(resource);
             }
         }
+
         transform.Position = position;
         velocity.Value = v;
     }
@@ -272,10 +288,10 @@ partial struct ResourceFallenJob : IJobEntity
 
 [BurstCompile]
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
-[RequireMatchingQueriesForUpdate]
 partial struct ResourceFallenSystem : ISystem
 {
     Unity.Mathematics.Random random;
+
     public void OnCreate(ref SystemState state)
     {
         random = Unity.Mathematics.Random.CreateFromIndex(42);
@@ -284,6 +300,7 @@ partial struct ResourceFallenSystem : ISystem
         state.RequireForUpdate<Grid>();
         state.RequireForUpdate<ResourceConfiguration>();
         state.RequireForUpdate<BeeConfiguration>();
+        state.RequireForUpdate<StackHeight>();
     }
 
     public void OnDestroy(ref SystemState state)
@@ -299,11 +316,8 @@ partial struct ResourceFallenSystem : ISystem
 
         var config = SystemAPI.GetSingleton<ResourceConfiguration>();
         var grid = SystemAPI.GetSingleton<Grid>();
-        var stackHeight = new NativeArray2DProxy<int>
-        {
-            shape = math.int2(grid.Shape.x, grid.Shape.z),
-            data = SystemAPI.GetSingletonBuffer<StackHeight>().Reinterpret<int>().AsNativeArray()
-        };
+        var heightData = SystemAPI.GetSingletonBuffer<StackHeight>().Reinterpret<int>().AsNativeArray();
+
 
         var beeConfig = SystemAPI.GetSingleton<BeeConfiguration>();
         var field = SystemAPI.GetSingleton<FieldComponent>();
@@ -322,16 +336,16 @@ partial struct ResourceFallenSystem : ISystem
         //     RefRW<Velocity>>().WithNone<ResourceHolder, Stacked>().WithEntityAccess())
         // {
         //     var position = transform.Position;
-
+        //
         //     position = math.lerp(position, grid.NearestSnappedPos(position), config.snapStiffness * SystemAPI.Time.DeltaTime);
-
+        //
         //     var v = velocity.ValueRO.Value;
         //     v.y += field.Gravity * SystemAPI.Time.DeltaTime;
         //     position += v * SystemAPI.Time.DeltaTime;
-
-
+        //
+        //
         //     var idx = grid.ToInboundIndex(grid.PositionToIndex(position));
-
+        //
         //     // 当resource比较多的时候，可能同时存在多个resource在同一个stack上，此时下面的floorY判断逻辑会出问题
         //     float floorY = grid.bottom + stackHeight[idx.x, idx.z] * config.resourceSize;
         //     for (int j = 0; j < 3; j++)
@@ -351,19 +365,19 @@ partial struct ResourceFallenSystem : ISystem
         //         {
         //             for (int i = 0; i < 5; i++)
         //             {
-        //                 particleSpawner.SpawnParticleSpawnFlash(ref random, ecb, position + random.NextFloat3Direction(), random.NextFloat3Direction());
+        //                 particleSpawner.SpawnParticleSpawnFlash(ref random, ecb, 0, position + random.NextFloat3Direction(), random.NextFloat3Direction());
         //             }
         //             for (int i = 0; i < config.beesPerResource; i++)
         //             {
-        //                 BeeSpawnSystem.SpawnBee(ref ecb, ref random, position, position.x < 0 ? 0 : 1, beeConfig);
+        //                 BeeSpawnSystem.SpawnBee(ref ecb, ref random,  position, position.x < 0 ? 0 : 1, beeConfig, 0);
         //             }
-        //             ecb.DestroyEntity(e);
+        //             ecb.DestroyEntity(0, e);
         //             // Resource Spawn Bee System
         //         }
         //         else
         //         {
         //             // resource.stacked = true;
-        //             ecb.AddComponent(e, new Stacked
+        //             ecb.AddComponent(0, e, new Stacked
         //             {
         //                 Index = stackHeight[idx.x, idx.z]
         //             });
@@ -381,15 +395,80 @@ partial struct ResourceFallenSystem : ISystem
             config = config,
             beeConfig = beeConfig,
             field = field,
-            // stackHeight = stackHeight,
+            heightData = heightData,
             particleSpawner = particleSpawner,
             ecb = ecb,
             random = random,
             deltaTime = deltaTime
-        }.ScheduleParallel(state.Dependency);
+        }.Schedule(state.Dependency);
     }
 }
 
+[BurstCompile]
+[WithAll(typeof(ResourceComponent))]
+partial struct ResourceStackingJob : IJobEntity
+{
+    [ReadOnly] public Grid grid;
+    [ReadOnly] public ResourceConfiguration config;
+    public NativeArray<int> heightData;
+    public EntityCommandBuffer.ParallelWriter ECB;
+
+    [BurstCompile]
+    void Execute(ref TransformAspect transform, ref Stacked stacked,
+        in Entity entity,
+        [EntityInQueryIndex] int inQueryIndex)
+    {
+        var stackHeightMap = new NativeArray2DProxy<int>
+        {
+            shape = math.int2(grid.Shape.x, grid.Shape.z),
+            data = heightData
+        };
+        var position = transform.Position;
+        var idx = grid.PositionToIndex(position);
+        stacked.Index = stackHeightMap[idx.x, idx.z];
+        stackHeightMap[idx.x, idx.z]++;
+        position.y = stacked.Index * config.resourceSize + grid.bottom;
+        transform.Position = position;
+    }
+}
+
+[UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
+[UpdateAfter(typeof(ResourceFallenSystem))]
+[BurstCompile]
+partial struct ResourceStackingSystem : ISystem
+{
+    [BurstCompile]
+    public void OnCreate(ref SystemState state)
+    {
+        state.RequireForUpdate<Grid>();
+        state.RequireForUpdate<StackHeight>();
+        state.RequireForUpdate<ResourceConfiguration>();
+    }
+
+    public void OnDestroy(ref SystemState state)
+    {
+    }
+
+    [BurstCompile]
+    public void OnUpdate(ref SystemState state)
+    {
+        var ecbSingleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
+        var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged).AsParallelWriter();
+
+        var grid = SystemAPI.GetSingleton<Grid>();
+        var config = SystemAPI.GetSingleton<ResourceConfiguration>();
+        var stackHeight = SystemAPI.GetSingletonBuffer<StackHeight>().Reinterpret<int>().AsNativeArray();
+        stackHeight.AsSpan().Fill(0);
+
+        state.Dependency = new ResourceStackingJob
+        {
+            grid = grid,
+            heightData = stackHeight,
+            ECB = ecb,
+            config = config
+        }.Schedule(state.Dependency);
+    }
+}
 
 
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup), OrderLast = true)]
@@ -416,8 +495,8 @@ partial struct ResourceOverHeightRemoveSystem : ISystem
         var field = SystemAPI.GetSingleton<FieldComponent>();
         // if (resource.holder == null && resource.stacked == false)
         foreach (var (resource, stacked, e) in SystemAPI.Query<
-            ResourceComponent,
-            Stacked>().WithEntityAccess())
+                     ResourceComponent,
+                     Stacked>().WithEntityAccess())
         {
             if (stacked.Index * config.resourceSize >= field.Size.y)
             {

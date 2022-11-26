@@ -17,3 +17,7 @@ partial struct Stacked : IComponentData
 {
     public int Index;
 }
+
+partial struct Stacking : IComponentData
+{
+}
