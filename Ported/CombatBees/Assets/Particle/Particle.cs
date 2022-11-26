@@ -20,8 +20,13 @@ partial struct StuckedParticle : IComponentData
 {
 }
 
-partial struct BloodParticle : IComponentData { }
-partial struct SpawnParticle : IComponentData { }
+partial struct BloodParticle : IComponentData
+{
+}
+
+partial struct SpawnParticle : IComponentData
+{
+}
 
 
 // [BurstCompile]
@@ -32,10 +37,10 @@ partial struct ParticleSpawner
 
     // [BurstCompile]
     public void SpawnParticleSpawnFlash(ref Random random,
-                                        EntityCommandBuffer.ParallelWriter ecb,
-                                        int sortKey,
-                                        float3 position,
-                                        float3 velocity)
+        EntityCommandBuffer.ParallelWriter ecb,
+        int sortKey,
+        float3 position,
+        float3 velocity)
     {
         var instance = ecb.Instantiate(sortKey, config.particlePrefab);
 
@@ -62,39 +67,49 @@ partial struct ParticleSpawner
 
     // [BurstCompile]
     public void SpawnParticleBlood(ref Random random,
-                                   in int sortKey,
-                                   EntityCommandBuffer.ParallelWriter ecb,
-                                   float3 position,
-                                   float3 velocity)
+        in int sortKey,
+        EntityCommandBuffer.ParallelWriter ecb,
+        float3 position,
+        float3 velocity,
+        int count,
+        float3 positionVariant,
+        float3 velocityVariant)
     {
-        var instance = ecb.Instantiate(sortKey, config.particlePrefab);
+        using var instances = CollectionHelper.CreateNativeArray<Entity>(count, Allocator.Temp);
+        // var instance = ecb.Instantiate(sortKey, config.particlePrefab);
+        ecb.Instantiate(sortKey, config.particlePrefab, instances);
 
-        ecb.SetComponent(sortKey, instance, new LocalToWorldTransform
+        foreach (var instance in instances)
         {
-            Value = UniformScaleTransform.FromPosition(position)
-        });
-        ecb.AddComponent(sortKey, instance, new PostTransformMatrix { Value = float4x4.identity });
-        ecb.AddComponent(sortKey, instance, new Velocity
-        {
-            Value = velocity
-        });
+            ecb.SetComponent(sortKey, instance, new LocalToWorldTransform
+            {
+                Value = UniformScaleTransform.FromPosition(position + random.NextFloat3(positionVariant) -
+                                                           positionVariant)
+            });
+            ecb.AddComponent(sortKey, instance, new PostTransformMatrix { Value = float4x4.identity });
+            ecb.AddComponent(sortKey, instance, new Velocity
+            {
+                Value = velocity + random.NextFloat3Direction() * velocityVariant
+            });
 
-        ecb.AddComponent(sortKey, instance, new Particle
-        {
-            size = math.float3(1f) * random.NextFloat(.1f, .2f),
-        });
-        ecb.AddComponent(sortKey, instance, new ParticleLife
-        {
-            normalizedLife = 1f,
-            Duration = random.NextFloat(3f, 5f)
-        });
-        ecb.AddComponent(sortKey, instance, new BloodParticle { });
+            ecb.AddComponent(sortKey, instance, new Particle
+            {
+                size = math.float3(1f) * random.NextFloat(.1f, .2f),
+            });
+            ecb.AddComponent(sortKey, instance, new ParticleLife
+            {
+                normalizedLife = 1f,
+                Duration = random.NextFloat(3f, 5f)
+            });
+            ecb.AddComponent(sortKey, instance, new BloodParticle { });
 
-        var hsv = random.NextFloat3(
-                    math.float3(-.05f, .75f, .3f),
-                    math.float3(.05f, 1f, .8f));
-        var rgb = UnityEngine.Color.HSVToRGB(hsv[0], hsv[1], hsv[2]);
-        ecb.AddComponent(sortKey, instance, new URPMaterialPropertyBaseColor { Value = math.float4(rgb.r, rgb.g, rgb.b, 1f) });
+            var hsv = random.NextFloat3(
+                math.float3(-.05f, .75f, .3f),
+                math.float3(.05f, 1f, .8f));
+            var rgb = UnityEngine.Color.HSVToRGB(hsv[0], hsv[1], hsv[2]);
+            ecb.AddComponent(sortKey, instance,
+                new URPMaterialPropertyBaseColor { Value = math.float4(rgb.r, rgb.g, rgb.b, 1f) });
+        }
     }
 }
 
@@ -122,7 +137,7 @@ partial struct ParticleSpawnSystem : ISystem
     public void OnUpdate(ref SystemState state)
     {
         var ecb = SystemAPI.GetSingleton<EndFixedStepSimulationEntityCommandBufferSystem.Singleton>()
-                           .CreateCommandBuffer(state.WorldUnmanaged);
+            .CreateCommandBuffer(state.WorldUnmanaged);
         var config = SystemAPI.GetSingleton<ParticleConfiguration>();
         var ps = new ParticleSpawner
         {
@@ -132,12 +147,9 @@ partial struct ParticleSpawnSystem : ISystem
         {
             return;
         }
-        for (int i = 0; i < 100; i++)
-        {
-            var v = random.NextFloat3Direction() * 6f;
-            ps.SpawnParticleBlood(ref random, 0, ecb.AsParallelWriter(), float3.zero, v);
 
-        }
+        ps.SpawnParticleBlood(ref random, 0, ecb.AsParallelWriter(), float3.zero, float3.zero, 100, float3.zero, 6f);
+
         state.Enabled = false;
     }
 }
@@ -148,8 +160,10 @@ partial struct ParticleSimulationJob : IJobEntity
     [ReadOnly] public FieldComponent field;
     public EntityCommandBuffer.ParallelWriter ECB;
     public float deltaTime;
+
     [BurstCompile]
-    void Execute(ref TransformAspect transform, ref Velocity velocity, ref Particle particle, in Entity entity, [EntityInQueryIndex] int inQueryIndex)
+    void Execute(ref TransformAspect transform, ref Velocity velocity, ref Particle particle, in Entity entity,
+        [EntityInQueryIndex] int inQueryIndex)
     {
         velocity.Value += math.float3(0f, 1f, 0f) * (field.Gravity * deltaTime);
         var position = transform.Position;
@@ -165,6 +179,7 @@ partial struct ParticleSimulationJob : IJobEntity
             particle.size.z *= splat;
             stucked = true;
         }
+
         if (math.abs(position.y) > field.Size.y * .5f)
         {
             position.y = field.Size.y * .5f * math.sign(position.y);
@@ -173,6 +188,7 @@ partial struct ParticleSimulationJob : IJobEntity
             particle.size.x *= splat;
             stucked = true;
         }
+
         if (math.abs(position.z) > field.Size.z * .5f)
         {
             position.z = field.Size.z * .5f * math.sign(position.z);
@@ -187,8 +203,9 @@ partial struct ParticleSimulationJob : IJobEntity
             ECB.AddComponent(inQueryIndex, entity, new StuckedParticle { });
             velocity.Value = float3.zero;
             // particle.cachedMatrix = Matrix4x4.TRS(particle.position, Quaternion.identity, particle.size);
+        }
 
-        };
+        ;
         transform.Position = position;
     }
 }
@@ -199,7 +216,6 @@ partial struct ParticleSimulationJob : IJobEntity
 [RequireMatchingQueriesForUpdate]
 partial struct ParticleSimulationSystem : ISystem
 {
-
     public void OnCreate(ref SystemState state)
     {
         state.RequireForUpdate<FieldComponent>();
@@ -215,7 +231,7 @@ partial struct ParticleSimulationSystem : ISystem
         float deltaTime = SystemAPI.Time.DeltaTime;
         var field = SystemAPI.GetSingleton<FieldComponent>();
         var ecb = SystemAPI.GetSingleton<EndFixedStepSimulationEntityCommandBufferSystem.Singleton>()
-                           .CreateCommandBuffer(state.WorldUnmanaged);
+            .CreateCommandBuffer(state.WorldUnmanaged);
 
         state.Dependency = new ParticleSimulationJob
         {
@@ -260,7 +276,7 @@ partial struct ParticleRemoveSystem : ISystem
     public void OnUpdate(ref SystemState state)
     {
         var ECB = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>()
-                           .CreateCommandBuffer(state.WorldUnmanaged);
+            .CreateCommandBuffer(state.WorldUnmanaged);
         var deltaTime = SystemAPI.Time.DeltaTime;
 
         state.Dependency = new ParticleRemoveJob
@@ -277,12 +293,13 @@ partial struct ParticleRemoveSystem : ISystem
 partial struct BloodParticlePresentJob : IJobEntity
 {
     [ReadOnly] public ParticleConfiguration config;
+
     [BurstCompile]
     void Execute(ref PostTransformMatrix matrix,
-                     ref URPMaterialPropertyBaseColor color,
-                     in Particle particle,
-                     in Velocity velocity,
-                     in ParticleLife life)
+        ref URPMaterialPropertyBaseColor color,
+        in Particle particle,
+        in Velocity velocity,
+        in ParticleLife life)
     {
         float3 scale = math.float3(particle.size * life.normalizedLife);
         var rotation = quaternion.LookRotation(velocity.Value, math.float3(0f, 1f, 0f));
@@ -304,10 +321,10 @@ partial struct SpawnParticlePresentJob : IJobEntity
 {
     [BurstCompile]
     void Execute(ref PostTransformMatrix matrix,
-                     ref URPMaterialPropertyBaseColor color,
-                     in Particle particle,
-                     in Velocity velocity,
-                     in ParticleLife life)
+        ref URPMaterialPropertyBaseColor color,
+        in Particle particle,
+        in Velocity velocity,
+        in ParticleLife life)
     {
         matrix.Value = float4x4.Scale(particle.size * life.normalizedLife);
         color.Value.w = life.normalizedLife;
@@ -320,9 +337,9 @@ partial struct StuckedParticlePresentJob : IJobEntity
 {
     [BurstCompile]
     void Execute(ref PostTransformMatrix matrix,
-                     ref URPMaterialPropertyBaseColor color,
-                     in Particle particle,
-                     in ParticleLife life)
+        ref URPMaterialPropertyBaseColor color,
+        in Particle particle,
+        in ParticleLife life)
     {
         matrix.Value = float4x4.Scale(particle.size * life.normalizedLife);
         color.Value.w = life.normalizedLife;
