@@ -95,12 +95,12 @@ partial struct ResourceFollowHolderJob : IJobEntity
     [BurstCompile]
     public void Execute(ref Velocity velocity,
         in TransformAspect transform,
-        in ResourceHolder holder,
+        in ResourceHolderAspect holder,
         in Entity e)
     {
         if ((!SystemAPI.Exists(holder.Holder)) || SystemAPI.HasComponent<Dying>(holder.Holder))
         {
-            ECB.RemoveComponent<ResourceHolder>(e);
+            ECB.RemoveComponent<ResourceHolderAspect>(e);
         }
         else
         {
@@ -150,11 +150,11 @@ partial struct ResourceFollowHolderSystem : ISystem
 
 
         foreach (var (resource, holder, transform, velocity, e) in SystemAPI
-                     .Query<ResourceComponent, ResourceHolder, TransformAspect, RefRW<Velocity>>().WithEntityAccess())
+                     .Query<ResourceComponent, ResourceHolderAspect, TransformAspect, RefRW<Velocity>>().WithEntityAccess())
         {
             if ((!SystemAPI.Exists(holder.Holder)) || SystemAPI.HasComponent<Dying>(holder.Holder))
             {
-                ecb.RemoveComponent<ResourceHolder>(e);
+                ecb.RemoveComponent<ResourceHolderAspect>(e);
             }
             else
             {
@@ -177,28 +177,8 @@ partial struct ResourceFollowHolderSystem : ISystem
 }
 
 
-struct ResourceStackHoldLogic
-{
-    public ComponentLookup<ResourceHolder> ResourceHolderFromEntity;
-
-    void OnUpdate(ref SystemState state)
-    {
-        ResourceHolderFromEntity.Update(ref state);
-    }
-
-    public bool HasHolder(in Entity resourceEntity)
-    {
-        return ResourceHolderFromEntity.HasComponent(resourceEntity);
-    }
-
-    public bool IsGrabable(in Entity resourceEntity)
-    {
-        return false;
-    }
-}
-
 [BurstCompile]
-[WithNone(typeof(ResourceHolder))]
+[WithNone(typeof(ResourceHolderAspect))]
 [WithNone(typeof(Stacked))]
 [WithNone(typeof(Stacking))]
 [WithAll(typeof(ResourceComponent))]
@@ -328,66 +308,6 @@ partial struct ResourceFallenSystem : ISystem
             config = SystemAPI.GetSingleton<ParticleConfiguration>()
         };
 
-
-        // if (resource.holder == null && resource.stacked == false)
-        // foreach (var (resource, transform, velocity, e) in SystemAPI.Query<
-        //     ResourceComponent,
-        //     TransformAspect,
-        //     RefRW<Velocity>>().WithNone<ResourceHolder, Stacked>().WithEntityAccess())
-        // {
-        //     var position = transform.Position;
-        //
-        //     position = math.lerp(position, grid.NearestSnappedPos(position), config.snapStiffness * SystemAPI.Time.DeltaTime);
-        //
-        //     var v = velocity.ValueRO.Value;
-        //     v.y += field.Gravity * SystemAPI.Time.DeltaTime;
-        //     position += v * SystemAPI.Time.DeltaTime;
-        //
-        //
-        //     var idx = grid.ToInboundIndex(grid.PositionToIndex(position));
-        //
-        //     // 当resource比较多的时候，可能同时存在多个resource在同一个stack上，此时下面的floorY判断逻辑会出问题
-        //     float floorY = grid.bottom + stackHeight[idx.x, idx.z] * config.resourceSize;
-        //     for (int j = 0; j < 3; j++)
-        //     {
-        //         if (math.abs(position[j]) > field.Size[j] * .5f)
-        //         {
-        //             position[j] = field.Size[j] * .5f * Mathf.Sign(position[j]);
-        //             v[j] *= -.5f;
-        //             v[(j + 1) % 3] *= .8f;
-        //             v[(j + 2) % 3] *= .8f;
-        //         }
-        //     }
-        //     if (position.y <= floorY)
-        //     {
-        //         position.y = floorY;
-        //         if (math.abs(position.x) > field.Size.x * .4f)
-        //         {
-        //             for (int i = 0; i < 5; i++)
-        //             {
-        //                 particleSpawner.SpawnParticleSpawnFlash(ref random, ecb, 0, position + random.NextFloat3Direction(), random.NextFloat3Direction());
-        //             }
-        //             for (int i = 0; i < config.beesPerResource; i++)
-        //             {
-        //                 BeeSpawnSystem.SpawnBee(ref ecb, ref random,  position, position.x < 0 ? 0 : 1, beeConfig, 0);
-        //             }
-        //             ecb.DestroyEntity(0, e);
-        //             // Resource Spawn Bee System
-        //         }
-        //         else
-        //         {
-        //             // resource.stacked = true;
-        //             ecb.AddComponent(0, e, new Stacked
-        //             {
-        //                 Index = stackHeight[idx.x, idx.z]
-        //             });
-        //             stackHeight[idx.x, idx.z]++;
-        //             // DeleteResource(resource);
-        //         }
-        //     }
-        //     transform.Position = position;
-        //     velocity.ValueRW.Value = v;
-        // }
         var deltaTime = SystemAPI.Time.DeltaTime;
         state.Dependency = new ResourceFallenJob
         {

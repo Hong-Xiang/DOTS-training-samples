@@ -4,6 +4,8 @@ class ParticleConfigurationAuthoring : MonoBehaviour
 {
     public float speedStretch;
     public int maxParticleCount = 10000;
+    public int beeDeathParticleCount;
+    public int beeAttackParticleCount;
     public GameObject particlePrefab;
 
     class ParticleConfigurationBaker : Baker<ParticleConfigurationAuthoring>
@@ -14,7 +16,9 @@ class ParticleConfigurationAuthoring : MonoBehaviour
             {
                 speedStretch = authoring.speedStretch,
                 maxParticleCount = authoring.maxParticleCount,
-                particlePrefab = GetEntity(authoring.particlePrefab)
+                particlePrefab = GetEntity(authoring.particlePrefab),
+                beeAttackParticleCount = authoring.beeAttackParticleCount,
+                beeDeathParticleCount = authoring.beeDeathParticleCount
             });
         }
     }
@@ -25,4 +29,6 @@ partial struct ParticleConfiguration : IComponentData
     public float speedStretch;
     public int maxParticleCount;
     public Entity particlePrefab;
+    public int beeDeathParticleCount;
+    public int beeAttackParticleCount;
 }

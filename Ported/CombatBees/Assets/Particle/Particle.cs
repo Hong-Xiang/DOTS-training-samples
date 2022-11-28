@@ -29,13 +29,13 @@ partial struct SpawnParticle : IComponentData
 }
 
 
-// [BurstCompile]
+[BurstCompile]
 partial struct ParticleSpawner
 {
     [ReadOnly] public ParticleConfiguration config;
 
 
-    // [BurstCompile]
+    [BurstCompile]
     public void SpawnParticleSpawnFlash(ref Random random,
         EntityCommandBuffer.ParallelWriter ecb,
         int sortKey,
@@ -65,7 +65,7 @@ partial struct ParticleSpawner
         ecb.AddComponent(sortKey, instance, new URPMaterialPropertyBaseColor { Value = math.float4(1f) });
     }
 
-    // [BurstCompile]
+    [BurstCompile]
     public void SpawnParticleBlood(ref Random random,
         in int sortKey,
         EntityCommandBuffer.ParallelWriter ecb,
@@ -116,6 +116,7 @@ partial struct ParticleSpawner
 
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
 [RequireMatchingQueriesForUpdate]
+[BurstCompile]
 partial struct ParticleSpawnSystem : ISystem
 {
     EntityQuery ParticleQuery;
@@ -134,6 +135,7 @@ partial struct ParticleSpawnSystem : ISystem
     {
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         var ecb = SystemAPI.GetSingleton<EndFixedStepSimulationEntityCommandBufferSystem.Singleton>()
@@ -155,6 +157,7 @@ partial struct ParticleSpawnSystem : ISystem
 }
 
 [WithNone(typeof(StuckedParticle))]
+[BurstCompile]
 partial struct ParticleSimulationJob : IJobEntity
 {
     [ReadOnly] public FieldComponent field;

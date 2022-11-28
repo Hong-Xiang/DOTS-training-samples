@@ -10,8 +10,6 @@ public static class Field
 {
     public static Vector3 size = new Vector3(100f, 20f, 30f);
     public static float gravity = -20f;
-
-
 }
 
 [BurstCompile]
@@ -72,6 +70,7 @@ struct NativeArray2DProxy<T> where T : unmanaged
 
 
 [UpdateInGroup(typeof(InitializationSystemGroup), OrderLast = true)]
+[BurstCompile]
 partial struct FieldDiscritizationSystem : ISystem
 {
     EntityArchetype discritizationType;
@@ -87,6 +86,7 @@ partial struct FieldDiscritizationSystem : ISystem
 
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         var config = SystemAPI.GetSingleton<ResourceConfiguration>();
