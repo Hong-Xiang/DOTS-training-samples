@@ -317,7 +317,6 @@ partial struct BeeEnemyTargetJob : IJobEntity
 {
     [ReadOnly] public ComponentLookup<LocalToWorldTransform> LocalToWorldTransformFromEntity;
     [ReadOnly] public ComponentLookup<Dying> DeathFromEntity;
-    [ReadOnly] public ComponentLookup<HoldingResource> HoldingResourceFromEntity;
 
     [ReadOnly] public BeeConfiguration config;
     [ReadOnly] public ParticleSpawner particleSpawner;
@@ -377,13 +376,6 @@ partial struct BeeEnemyTargetJob : IJobEntity
                     });
 
                     enemyTargetAspect.RemoveTarget(ref ecb, inQueryIndex);
-                    if (HoldingResourceFromEntity.HasComponent(enemyTargetAspect.BeeEntity))
-                    {
-                        var resourceEntity = HoldingResourceFromEntity[enemyTargetAspect.BeeEntity].ResourceEntity;
-                        ecb.RemoveComponent<HoldingResource>(inQueryIndex, enemyTargetAspect.BeeEntity);
-                        ecb.RemoveComponent<ResourceHolderEntity>(inQueryIndex, resourceEntity);
-                        ecb.RemoveComponent<ResourceHolderTeam>(inQueryIndex, resourceEntity);
-                    }
                 }
             }
         }
@@ -397,14 +389,12 @@ partial struct BeeEnemyTargetSystem : ISystem
 {
     ComponentLookup<LocalToWorldTransform> LocalToWorldTransformFromEntity;
     ComponentLookup<Dying> DeathFromEntity;
-    ComponentLookup<HoldingResource> HoldingResourceFromEntity;
     EntityQuery ParticleQuery;
 
     public void OnCreate(ref SystemState state)
     {
         LocalToWorldTransformFromEntity = state.GetComponentLookup<LocalToWorldTransform>(true);
         DeathFromEntity = state.GetComponentLookup<Dying>(true);
-        HoldingResourceFromEntity = state.GetComponentLookup<HoldingResource>(true);
         ParticleQuery = state.GetEntityQuery(typeof(Particle));
 
         state.RequireForUpdate<BeeConfiguration>();
@@ -429,7 +419,6 @@ partial struct BeeEnemyTargetSystem : ISystem
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
         LocalToWorldTransformFromEntity.Update(ref state);
         DeathFromEntity.Update(ref state);
-        HoldingResourceFromEntity.Update(ref state);
 
         var deltaTime = SystemAPI.Time.DeltaTime;
         var particleCount = ParticleQuery.CalculateEntityCount();
@@ -438,7 +427,6 @@ partial struct BeeEnemyTargetSystem : ISystem
         {
             LocalToWorldTransformFromEntity = LocalToWorldTransformFromEntity,
             DeathFromEntity = DeathFromEntity,
-            HoldingResourceFromEntity = HoldingResourceFromEntity,
             particleSpawner = particleSpawner,
             config = config,
             ecb = ecb.AsParallelWriter(),
@@ -847,6 +835,22 @@ partial struct BeeSpawnSystem : ISystem
 
 [BurstCompile]
 [WithAll(typeof(BeeTag))]
+[WithAll(typeof(Dying))]
+partial struct DyingBeeRemoveHoldingResourceJob : IJobEntity
+{
+    public EntityCommandBuffer.ParallelWriter ecb;
+    [BurstCompile]
+    void Execute(in HoldingResource holdingResource, in Entity beeEntity, [EntityInQueryIndex] int inQueryIndex)
+    {
+        var resourceEntity = holdingResource.ResourceEntity;
+        ecb.RemoveComponent<HoldingResource>(inQueryIndex, beeEntity);
+        ecb.RemoveComponent<ResourceHolderEntity>(inQueryIndex, resourceEntity);
+        ecb.RemoveComponent<ResourceHolderTeam>(inQueryIndex, resourceEntity);
+    }
+}
+
+[BurstCompile]
+[WithAll(typeof(BeeTag))]
 partial struct BeeDeathJob : IJobEntity
 {
     [ReadOnly] public FieldComponent fieldConfiguration;
@@ -913,6 +917,10 @@ partial struct BeeDeathSystem : ISystem
         var particleCount = ParticleQuery.CalculateEntityCount();
 
         var deltaTime = SystemAPI.Time.DeltaTime;
+        state.Dependency = new DyingBeeRemoveHoldingResourceJob
+        {
+            ecb = ecb,
+        }.ScheduleParallel(state.Dependency);
         state.Dependency = new BeeDeathJob
         {
             fieldConfiguration = fieldConfiguration,

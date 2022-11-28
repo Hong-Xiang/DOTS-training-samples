@@ -277,7 +277,7 @@ partial struct ParticleSimulationSystem : ISystem
     {
         float deltaTime = SystemAPI.Time.DeltaTime;
         var field = SystemAPI.GetSingleton<FieldComponent>();
-        var ecb = SystemAPI.GetSingleton<EndFixedStepSimulationEntityCommandBufferSystem.Singleton>()
+        var ecb = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>()
             .CreateCommandBuffer(state.WorldUnmanaged);
 
         state.Dependency = new ParticleSimulationJob
