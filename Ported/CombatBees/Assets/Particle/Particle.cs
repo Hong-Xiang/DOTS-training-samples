@@ -157,7 +157,6 @@ partial struct ParticleSpawner
     }
 }
 
-
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
 [RequireMatchingQueriesForUpdate]
 [BurstCompile]
@@ -308,6 +307,7 @@ partial struct ParticleRemoveJob : IJobEntity
 
 [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
 [BurstCompile]
+[UpdateAfter(typeof(ParticleSimulationSystem))]
 [RequireMatchingQueriesForUpdate]
 partial struct ParticleRemoveSystem : ISystem
 {

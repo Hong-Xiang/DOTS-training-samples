@@ -838,14 +838,19 @@ partial struct BeeSpawnSystem : ISystem
 [WithAll(typeof(Dying))]
 partial struct DyingBeeRemoveHoldingResourceJob : IJobEntity
 {
+    [ReadOnly] public ComponentLookup<ResourceHolderEntity> ResourceHolderFromEntity;
     public EntityCommandBuffer.ParallelWriter ecb;
     [BurstCompile]
     void Execute(in HoldingResource holdingResource, in Entity beeEntity, [EntityInQueryIndex] int inQueryIndex)
     {
         var resourceEntity = holdingResource.ResourceEntity;
         ecb.RemoveComponent<HoldingResource>(inQueryIndex, beeEntity);
-        ecb.RemoveComponent<ResourceHolderEntity>(inQueryIndex, resourceEntity);
-        ecb.RemoveComponent<ResourceHolderTeam>(inQueryIndex, resourceEntity);
+        if (ResourceHolderFromEntity.HasComponent(resourceEntity) && ResourceHolderFromEntity[resourceEntity].Holder == beeEntity)
+        {
+            ecb.RemoveComponent<ResourceHolderEntity>(inQueryIndex, resourceEntity);
+            ecb.RemoveComponent<ResourceHolderTeam>(inQueryIndex, resourceEntity);
+        }
+
     }
 }
 
@@ -893,10 +898,12 @@ partial struct BeeDeathSystem : ISystem
 {
     EntityQuery ParticleQuery;
 
+    ComponentLookup<ResourceHolderEntity> ResourceHolderFromEntity;
     public void OnCreate(ref SystemState state)
     {
         state.RequireForUpdate<FieldComponent>();
         state.RequireForUpdate<ParticleConfiguration>();
+        ResourceHolderFromEntity = state.GetComponentLookup<ResourceHolderEntity>();
         ParticleQuery = state.GetEntityQuery(typeof(Particle));
     }
 
@@ -915,17 +922,20 @@ partial struct BeeDeathSystem : ISystem
             .CreateCommandBuffer(state.WorldUnmanaged).AsParallelWriter();
         var particleSpawner = new ParticleSpawner { config = particleConfig };
         var particleCount = ParticleQuery.CalculateEntityCount();
+        ResourceHolderFromEntity.Update(ref state);
 
         var deltaTime = SystemAPI.Time.DeltaTime;
         state.Dependency = new DyingBeeRemoveHoldingResourceJob
         {
             ecb = ecb,
+            ResourceHolderFromEntity = ResourceHolderFromEntity
         }.ScheduleParallel(state.Dependency);
         state.Dependency = new BeeDeathJob
         {
             fieldConfiguration = fieldConfiguration,
             ecb = ecb,
             deltaTime = deltaTime,
+
             ParticleSpawner = particleSpawner,
             ParticleCount = particleCount > particleConfig.maxParticleCount ? 0 : particleConfig.beeDeathParticleCount,
         }.ScheduleParallel(state.Dependency);
