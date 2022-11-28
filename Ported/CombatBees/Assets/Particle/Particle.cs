@@ -75,18 +75,64 @@ partial struct ParticleSpawner
         float3 positionVariant,
         float3 velocityVariant)
     {
-        using var instances = CollectionHelper.CreateNativeArray<Entity>(count, Allocator.Temp);
-        // var instance = ecb.Instantiate(sortKey, config.particlePrefab);
-        ecb.Instantiate(sortKey, config.particlePrefab, instances);
-
-        foreach (var instance in instances)
+        if (count == 0)
         {
+            return;
+        }
+        // using var instances = CollectionHelper.CreateNativeArray<Entity>(count, Allocator.Temp);
+        // // var instance = ecb.Instantiate(sortKey, config.particlePrefab);
+        // ecb.Instantiate(sortKey, config.particlePrefab, instances);
+
+        // ecb.AddComponent(sortKey, instances, new PostTransformMatrix { Value = float4x4.identity });
+        // ecb.AddComponent(sortKey, instances, new BloodParticle { });
+        // ecb.AddComponent<Velocity>(sortKey, instances);
+        // ecb.AddComponent<Particle>(sortKey, instances);
+        // ecb.AddComponent<ParticleLife>(sortKey, instances);
+        // ecb.AddComponent<URPMaterialPropertyBaseColor>(sortKey, instances);
+
+        // foreach (var instance in instances)
+        // {
+        //     ecb.SetComponent(sortKey, instance, new LocalToWorldTransform
+        //     {
+        //         Value = UniformScaleTransform.FromPosition(position + random.NextFloat3(positionVariant) -
+        //                                                    positionVariant)
+        //     });
+        //     ecb.SetComponent(sortKey, instance, new Velocity
+        //     {
+        //         Value = velocity + random.NextFloat3Direction() * velocityVariant
+        //     });
+
+        //     ecb.SetComponent(sortKey, instance, new Particle
+        //     {
+        //         size = math.float3(1f) * random.NextFloat(.1f, .2f),
+        //     });
+        //     ecb.SetComponent(sortKey, instance, new ParticleLife
+        //     {
+        //         normalizedLife = 1f,
+        //         Duration = random.NextFloat(3f, 5f)
+        //     });
+        //     var hsv = random.NextFloat3(
+        //         math.float3(-.05f, .75f, .3f),
+        //         math.float3(.05f, 1f, .8f));
+        //     var rgb = UnityEngine.Color.HSVToRGB(hsv[0], hsv[1], hsv[2]);
+        //     ecb.SetComponent(sortKey, instance,
+        //         new URPMaterialPropertyBaseColor { Value = math.float4(rgb.r, rgb.g, rgb.b, 1f) });
+        // }
+
+
+        // using var instances = CollectionHelper.CreateNativeArray<Entity>(count, Allocator.Temp);
+        // ecb.Instantiate(sortKey, config.particlePrefab, instances);
+        // foreach (var instance in instances)
+        for (var i = 0; i < count; i++)
+        {
+            var instance = ecb.Instantiate(sortKey, config.particlePrefab);
+            ecb.AddComponent(sortKey, instance, new PostTransformMatrix { Value = float4x4.identity });
+            ecb.AddComponent(sortKey, instance, new BloodParticle { });
             ecb.SetComponent(sortKey, instance, new LocalToWorldTransform
             {
                 Value = UniformScaleTransform.FromPosition(position + random.NextFloat3(positionVariant) -
                                                            positionVariant)
             });
-            ecb.AddComponent(sortKey, instance, new PostTransformMatrix { Value = float4x4.identity });
             ecb.AddComponent(sortKey, instance, new Velocity
             {
                 Value = velocity + random.NextFloat3Direction() * velocityVariant
@@ -101,8 +147,6 @@ partial struct ParticleSpawner
                 normalizedLife = 1f,
                 Duration = random.NextFloat(3f, 5f)
             });
-            ecb.AddComponent(sortKey, instance, new BloodParticle { });
-
             var hsv = random.NextFloat3(
                 math.float3(-.05f, .75f, .3f),
                 math.float3(.05f, 1f, .8f));

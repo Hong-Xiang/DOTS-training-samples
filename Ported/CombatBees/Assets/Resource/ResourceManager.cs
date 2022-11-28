@@ -30,7 +30,7 @@ partial struct ResourceSpawnSystem : ISystem
     void SpawnResource(ref EntityCommandBuffer ECB, float3 position, float scale, Entity prefab)
     {
         var instance = ECB.Instantiate(prefab);
-        ECB.AddComponent(instance, new ResourceComponent { });
+        ECB.AddComponent(instance, new ResourceTag { });
         ECB.SetComponent(instance, new LocalToWorldTransform
         {
             Value = UniformScaleTransform.FromPosition(position).ApplyScale(scale)
@@ -64,7 +64,7 @@ partial struct ResourceSpawnSystem : ISystem
         }
 
         // 此处计算由于ECB的lazy性质，是delay了一帧的，也即存在可能性产生超过resourceCount个数的resource
-        var resourcesCount = SystemAPI.QueryBuilder().WithAll<ResourceComponent>().Build().CalculateEntityCount();
+        var resourcesCount = SystemAPI.QueryBuilder().WithAll<ResourceTag>().Build().CalculateEntityCount();
 
         // if (resources.Count < 1000 && MouseRaycaster.isMouseTouchingField)
         if (resourcesCount < config.maxResourceCount)
@@ -82,7 +82,8 @@ partial struct ResourceSpawnSystem : ISystem
     }
 }
 
-[WithAll(typeof(ResourceComponent))]
+[WithAll(typeof(ResourceTag))]
+[WithAll(typeof(ResourceHolderEntity))]
 [BurstCompile]
 partial struct ResourceFollowHolderJob : IJobEntity
 {
@@ -95,12 +96,13 @@ partial struct ResourceFollowHolderJob : IJobEntity
     [BurstCompile]
     public void Execute(ref Velocity velocity,
         in TransformAspect transform,
-        in ResourceHolderAspect holder,
+        in ResourceHolderEntity holder,
         in Entity e)
     {
         if ((!SystemAPI.Exists(holder.Holder)) || SystemAPI.HasComponent<Dying>(holder.Holder))
         {
-            ECB.RemoveComponent<ResourceHolderAspect>(e);
+            ECB.RemoveComponent<ResourceHolderEntity>(e);
+            ECB.RemoveComponent<ResourceHolderTeam>(e);
         }
         else
         {
@@ -150,11 +152,12 @@ partial struct ResourceFollowHolderSystem : ISystem
 
 
         foreach (var (resource, holder, transform, velocity, e) in SystemAPI
-                     .Query<ResourceComponent, ResourceHolderAspect, TransformAspect, RefRW<Velocity>>().WithEntityAccess())
+                     .Query<ResourceTag, ResourceHolderEntity, TransformAspect, RefRW<Velocity>>().WithEntityAccess())
         {
             if ((!SystemAPI.Exists(holder.Holder)) || SystemAPI.HasComponent<Dying>(holder.Holder))
             {
-                ecb.RemoveComponent<ResourceHolderAspect>(e);
+                ecb.RemoveComponent<ResourceHolderEntity>(e);
+                ecb.RemoveComponent<ResourceHolderTeam>(e);
             }
             else
             {
@@ -178,10 +181,10 @@ partial struct ResourceFollowHolderSystem : ISystem
 
 
 [BurstCompile]
-[WithNone(typeof(ResourceHolderAspect))]
+[WithNone(typeof(ResourceHolderEntity))]
 [WithNone(typeof(Stacked))]
 [WithNone(typeof(Stacking))]
-[WithAll(typeof(ResourceComponent))]
+[WithAll(typeof(ResourceTag))]
 partial struct ResourceFallenJob : IJobEntity
 {
     [ReadOnly] public Grid grid;
@@ -325,7 +328,7 @@ partial struct ResourceFallenSystem : ISystem
 }
 
 [BurstCompile]
-[WithAll(typeof(ResourceComponent))]
+[WithAll(typeof(ResourceTag))]
 partial struct ResourceStackingJob : IJobEntity
 {
     [ReadOnly] public Grid grid;
@@ -415,7 +418,7 @@ partial struct ResourceOverHeightRemoveSystem : ISystem
         var field = SystemAPI.GetSingleton<FieldComponent>();
         // if (resource.holder == null && resource.stacked == false)
         foreach (var (resource, stacked, e) in SystemAPI.Query<
-                     ResourceComponent,
+                     ResourceTag,
                      Stacked>().WithEntityAccess())
         {
             if (stacked.Index * config.resourceSize >= field.Size.y)
