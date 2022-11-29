@@ -203,8 +203,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   speedStretch: 0.25
   maxParticleCount: 10000
-  beeDeathParticleCount: 0
-  beeAttackParticleCount: 0
+  beeDeathParticleCount: 1
+  beeAttackParticleCount: 6
   particlePrefab: {fileID: 5538259745745406256, guid: 8455a5a3ed7001d44bdc3bc5d5272005,
     type: 3}
 --- !u!4 &603624081
