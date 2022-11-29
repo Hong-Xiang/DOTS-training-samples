@@ -36,7 +36,7 @@ struct Velocity : IComponentData
 
 
 
-struct BeeRandom : IComponentData
+struct RandomIndex : IComponentData
 {
     public Unity.Mathematics.Random random;
 }
@@ -101,4 +101,8 @@ struct ResourceTarget : IComponentData
 struct HoldingResource : IComponentData
 {
     public Entity ResourceEntity;
+}
+
+struct Dead : IComponentData
+{
 }

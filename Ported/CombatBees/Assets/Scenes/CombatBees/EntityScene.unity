@@ -203,8 +203,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   speedStretch: 0.25
   maxParticleCount: 10000
-  beeDeathParticleCount: 1
-  beeAttackParticleCount: 6
+  beeDeathParticleCount: 0
+  beeAttackParticleCount: 0
   particlePrefab: {fileID: 5538259745745406256, guid: 8455a5a3ed7001d44bdc3bc5d5272005,
     type: 3}
 --- !u!4 &603624081
@@ -258,7 +258,7 @@ MonoBehaviour:
   carryStiffness: 15
   spawnRate: 10
   beesPerResource: 8
-  startResourceCount: 500
+  startResourceCount: 800
   maxResourceCount: 1000
 --- !u!4 &1258550034
 Transform:

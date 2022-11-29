@@ -19,7 +19,7 @@ partial struct BeeRandomWalkJob : IJobEntity
     public float DeltaTime;
 
     [BurstCompile]
-    void Execute(ref BeeRandom random, TransformAspect transform, ref Velocity velocity)
+    void Execute(ref RandomIndex random, TransformAspect transform, ref Velocity velocity)
     {
         var v = velocity.Value;
         v += (random.random.NextFloat3Direction()) * (Config.flightJitter * DeltaTime);
@@ -70,7 +70,7 @@ partial struct BeeAlliesJob : IJobEntity
     public float deltaTime;
 
     [BurstCompile]
-    void Execute(ref Velocity velocity, ref BeeRandom random, in TransformAspect transform)
+    void Execute(ref Velocity velocity, ref RandomIndex random, in TransformAspect transform)
     {
         // 原始代码中没有进行这个检查，原则上算是一个bug，只不过这个不会出现数组访问越界，但是会除0
         if (allies.Length <= 1)
@@ -154,7 +154,7 @@ partial struct BeeNewTargetJob : IJobEntity
     public EntityCommandBuffer.ParallelWriter ECB;
 
     [BurstCompile]
-    void Execute(ref BeeRandom random,
+    void Execute(ref RandomIndex random,
         in BeeTag b,
         in Entity e,
         [EntityInQueryIndex] int inQueryIndex)
@@ -204,7 +204,7 @@ partial struct BeeNewTargetSystem : ISystem
             {
                 All = new ComponentType[]
                 {
-                    ComponentType.ReadWrite<BeeRandom>(),
+                    ComponentType.ReadWrite<RandomIndex>(),
                     ComponentType.ReadOnly<BeeTag>(),
                     ComponentType.ReadOnly<Team>(),
                 },
@@ -325,7 +325,7 @@ partial struct BeeEnemyTargetJob : IJobEntity
     public int particleCount;
 
     [BurstCompile]
-    void Execute(ref BeeRandom random,
+    void Execute(ref RandomIndex random,
         ref Attacking attacking,
         ref Velocity velocity,
         in TransformAspect transform,
@@ -395,7 +395,7 @@ partial struct BeeEnemyTargetSystem : ISystem
     {
         LocalToWorldTransformFromEntity = state.GetComponentLookup<LocalToWorldTransform>(true);
         DeathFromEntity = state.GetComponentLookup<Dying>(true);
-        ParticleQuery = state.GetEntityQuery(typeof(Particle));
+        ParticleQuery = state.GetEntityQuery(typeof(ParticleTag));
 
         state.RequireForUpdate<BeeConfiguration>();
         state.RequireForUpdate<ParticleConfiguration>();
@@ -796,7 +796,7 @@ partial struct BeeSpawnSystem : ISystem
         SmoothPositionVelocityAspect.AddSmoothPositionVelocity(ref ECB, instance, sortKey);
         ECB.AddComponent(sortKey, instance, new PostTransformMatrix { Value = float4x4.identity });
         ECB.AddComponent(sortKey, instance,
-            new BeeRandom { random = Unity.Mathematics.Random.CreateFromIndex(random.NextUInt()) });
+            new RandomIndex { random = Unity.Mathematics.Random.CreateFromIndex(random.NextUInt()) });
         ECB.AddComponent(sortKey, instance, new Attacking { isAttacking = false });
 
         // HACK: 尝试添加EnemyTargetVelociy，减少之后的AddComponent/RemoveComponent
@@ -853,7 +853,6 @@ partial struct DyingBeeRemoveHoldingResourceJob : IJobEntity
             ecb.RemoveComponent<ResourceHolderEntity>(inQueryIndex, resourceEntity);
             ecb.RemoveComponent<ResourceHolderTeam>(inQueryIndex, resourceEntity);
         }
-
     }
 }
 
@@ -868,7 +867,7 @@ partial struct BeeDeathJob : IJobEntity
     public int ParticleCount;
 
     [BurstCompile]
-    void Execute(ref BeeRandom random,
+    void Execute(ref RandomIndex random,
         ref Velocity velocity,
         ref Dying death,
         in Entity e,
@@ -889,6 +888,7 @@ partial struct BeeDeathJob : IJobEntity
         if (death.Timer < 0f)
         {
             ecb.DestroyEntity(inQueryIndex, e);
+            // ecb.AddComponent<Dead>(inQueryIndex, e);
         }
     }
 }
@@ -900,6 +900,7 @@ partial struct BeeDeathJob : IJobEntity
 partial struct BeeDeathSystem : ISystem
 {
     EntityQuery ParticleQuery;
+    EntityQuery DeadBeeQuery;
 
     ComponentLookup<ResourceHolderEntity> ResourceHolderFromEntity;
     public void OnCreate(ref SystemState state)
@@ -907,7 +908,8 @@ partial struct BeeDeathSystem : ISystem
         state.RequireForUpdate<FieldComponent>();
         state.RequireForUpdate<ParticleConfiguration>();
         ResourceHolderFromEntity = state.GetComponentLookup<ResourceHolderEntity>();
-        ParticleQuery = state.GetEntityQuery(typeof(Particle));
+        ParticleQuery = state.GetEntityQuery(typeof(ParticleTag));
+        DeadBeeQuery = state.GetEntityQuery(typeof(BeeTag), typeof(Dead));
     }
 
     [BurstCompile]
@@ -942,5 +944,6 @@ partial struct BeeDeathSystem : ISystem
             ParticleSpawner = particleSpawner,
             ParticleCount = particleCount > particleConfig.maxParticleCount ? 0 : particleConfig.beeDeathParticleCount,
         }.ScheduleParallel(state.Dependency);
+
     }
 }

@@ -1,4 +1,7 @@
 using Unity.Entities;
+using Unity.Mathematics;
+using Unity.Rendering;
+using Unity.Transforms;
 using UnityEngine;
 class ParticleConfigurationAuthoring : MonoBehaviour
 {
@@ -12,6 +15,8 @@ class ParticleConfigurationAuthoring : MonoBehaviour
     {
         public override void Bake(ParticleConfigurationAuthoring authoring)
         {
+
+            var particlePrefabEntity = GetEntity(authoring.particlePrefab);
             AddComponent<ParticleConfiguration>(new ParticleConfiguration
             {
                 speedStretch = authoring.speedStretch,
@@ -20,6 +25,13 @@ class ParticleConfigurationAuthoring : MonoBehaviour
                 beeAttackParticleCount = authoring.beeAttackParticleCount,
                 beeDeathParticleCount = authoring.beeDeathParticleCount
             });
+            // AddComponent<ParticleTag>(particlePrefabEntity);
+            // AddComponent<ParticleSize>(particlePrefabEntity);
+            // AddComponent<ParticleLife>(particlePrefabEntity);
+            // AddComponent<Velocity>(particlePrefabEntity);
+            // AddComponent<URPMaterialPropertyBaseColor>(particlePrefabEntity);
+            // AddComponent(particlePrefabEntity, new PostTransformMatrix { Value = float4x4.identity });
+
         }
     }
 }

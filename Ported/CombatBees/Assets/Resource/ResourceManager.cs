@@ -5,6 +5,8 @@ using Unity.Transforms;
 using Unity.Burst;
 using Unity.Collections;
 
+
+
 [BurstCompile]
 [RequireMatchingQueriesForUpdate]
 partial struct ResourceSpawnSystem : ISystem
