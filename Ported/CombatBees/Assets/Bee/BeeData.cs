@@ -78,7 +78,7 @@ readonly partial struct EnemyTargetAspect : IAspect
                                       in Entity self, in Entity target)
     {
         ecb.AddComponent(sortKey, self, new EnemyTargetEntity { BeeEntity = target });
-        ecb.AddComponent(sortKey, self, new EnemyTargetVelocity { Velocity = float3.zero });
+        // ecb.AddComponent(sortKey, self, new EnemyTargetVelocity { Velocity = float3.zero });
     }
 
     [BurstCompile]
@@ -86,7 +86,7 @@ readonly partial struct EnemyTargetAspect : IAspect
                              int sortKey)
     {
         ecb.RemoveComponent<EnemyTargetEntity>(sortKey, Self);
-        ecb.RemoveComponent<EnemyTargetVelocity>(sortKey, Self);
+        // ecb.RemoveComponent<EnemyTargetVelocity>(sortKey, Self);
     }
 }
 

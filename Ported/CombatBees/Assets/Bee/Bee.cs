@@ -798,6 +798,9 @@ partial struct BeeSpawnSystem : ISystem
         ECB.AddComponent(sortKey, instance,
             new BeeRandom { random = Unity.Mathematics.Random.CreateFromIndex(random.NextUInt()) });
         ECB.AddComponent(sortKey, instance, new Attacking { isAttacking = false });
+
+        // HACK: 尝试添加EnemyTargetVelociy，减少之后的AddComponent/RemoveComponent
+        ECB.AddComponent(sortKey, instance, new EnemyTargetVelocity { Velocity = float3.zero });
     }
 
     public void OnCreate(ref SystemState state)
