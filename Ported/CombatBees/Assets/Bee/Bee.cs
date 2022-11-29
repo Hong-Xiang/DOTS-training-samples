@@ -346,7 +346,7 @@ partial struct BeeEnemyTargetJob : IJobEntity
         {
             enemyTargetAspect.RemoveEnemyTarget(ref ecb, inQueryIndex);
             // ecb.RemoveComponent<EnemyTargetEntity>(inQueryIndex, beeEntity);
-            ecb.SetComponentEnabled<EnemyTargetEntity>(inQueryIndex, beeEntity, false);
+            // ecb.SetComponentEnabled<EnemyTargetEntity>(inQueryIndex, beeEntity, false);
             // ecb.RemoveComponent<EnemyTargetAspect>(inQueryIndex, beeEntity);
         }
         else
@@ -800,8 +800,9 @@ partial struct BeeSpawnPrefabUpdateSystem : ISystem
 
         // HACK: 尝试添加EnemyTargetVelociy，减少之后的AddComponent/RemoveComponent
         ECB.AddComponent(sortKey, instance, new EnemyTargetVelocity { Velocity = float3.zero });
-        ECB.AddComponent<EnemyTargetEntity>(sortKey, instance);
-        ECB.SetComponentEnabled<EnemyTargetEntity>(sortKey, instance, false);
+
+        // ECB.AddComponent<EnemyTargetEntity>(sortKey, instance);
+        // ECB.SetComponentEnabled<EnemyTargetEntity>(sortKey, instance, false);
     }
     public void OnCreate(ref SystemState state)
     {
