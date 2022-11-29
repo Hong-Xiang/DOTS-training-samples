@@ -46,7 +46,7 @@ struct Dying : IComponentData
     public float Timer;
 }
 
-struct EnemyTargetEntity : IComponentData
+struct EnemyTargetEntity : IComponentData, IEnableableComponent
 {
     public Entity BeeEntity;
 }
@@ -77,17 +77,19 @@ readonly partial struct EnemyTargetAspect : IAspect
                                       int sortKey,
                                       in Entity self, in Entity target)
     {
-        ecb.AddComponent(sortKey, self, new EnemyTargetEntity { BeeEntity = target });
-        // ecb.AddComponent(sortKey, self, new EnemyTargetVelocity { Velocity = float3.zero });
+        // ecb.AddComponent(sortKey, self, new EnemyTargetEntity { BeeEntity = target });
+        ecb.SetComponent(sortKey, self, new EnemyTargetEntity { BeeEntity = target });
+        ecb.SetComponentEnabled<EnemyTargetEntity>(sortKey, self, true);
     }
 
     [BurstCompile]
-    public void RemoveTarget(ref EntityCommandBuffer.ParallelWriter ecb,
-                             int sortKey)
+    public void RemoveEnemyTarget(ref EntityCommandBuffer.ParallelWriter ecb,
+                                  int sortKey)
     {
-        ecb.RemoveComponent<EnemyTargetEntity>(sortKey, Self);
-        // ecb.RemoveComponent<EnemyTargetVelocity>(sortKey, Self);
+        // ecb.AddComponent(sortKey, self, new EnemyTargetEntity { BeeEntity = target });
+        ecb.SetComponentEnabled<EnemyTargetEntity>(sortKey, Self, false);
     }
+
 }
 
 

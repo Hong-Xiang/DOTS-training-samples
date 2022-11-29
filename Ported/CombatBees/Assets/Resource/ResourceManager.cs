@@ -192,6 +192,7 @@ partial struct ResourceFallenJob : IJobEntity
     [ReadOnly] public Grid grid;
     [ReadOnly] public ResourceConfiguration config;
     [ReadOnly] public BeeConfiguration beeConfig;
+    [ReadOnly] public BeeSpawnData beeSpawn;
 
     [ReadOnly] public FieldComponent field;
 
@@ -250,6 +251,7 @@ partial struct ResourceFallenJob : IJobEntity
                 for (int i = 0; i < config.beesPerResource; i++)
                 {
                     BeeSpawnSystem.SpawnBee(ref ecb, ref random, position, position.x < 0 ? 0 : 1, beeConfig,
+                    beeSpawn,
                         inQueryIndex);
                 }
 
@@ -285,7 +287,9 @@ partial struct ResourceFallenSystem : ISystem
         state.RequireForUpdate<Grid>();
         state.RequireForUpdate<ResourceConfiguration>();
         state.RequireForUpdate<BeeConfiguration>();
+        state.RequireForUpdate<BeeSpawnData>();
         state.RequireForUpdate<StackHeight>();
+        state.RequireForUpdate<ParticleSpawnData>();
     }
 
     public void OnDestroy(ref SystemState state)
@@ -305,12 +309,13 @@ partial struct ResourceFallenSystem : ISystem
 
 
         var beeConfig = SystemAPI.GetSingleton<BeeConfiguration>();
+        var beeSpawn = SystemAPI.GetSingleton<BeeSpawnData>();
         var field = SystemAPI.GetSingleton<FieldComponent>();
 
 
         var particleSpawner = new ParticleSpawner
         {
-            config = SystemAPI.GetSingleton<ParticleConfiguration>()
+            spawn = SystemAPI.GetSingleton<ParticleSpawnData>()
         };
 
         var deltaTime = SystemAPI.Time.DeltaTime;
@@ -319,6 +324,7 @@ partial struct ResourceFallenSystem : ISystem
             grid = grid,
             config = config,
             beeConfig = beeConfig,
+            beeSpawn = beeSpawn,
             field = field,
             heightData = heightData,
             particleSpawner = particleSpawner,

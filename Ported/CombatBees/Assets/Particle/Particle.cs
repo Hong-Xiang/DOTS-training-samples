@@ -27,7 +27,7 @@ partial struct ParticleLife : IComponentData
 
 
 
-partial struct StuckedParticle : IComponentData
+partial struct StuckedParticle : IComponentData, IEnableableComponent
 {
 }
 
@@ -42,7 +42,7 @@ partial struct BeeSpawnParticle : IComponentData
 partial struct ParticleSpawnData : IComponentData
 {
     public Entity BloodPrefabEntity;
-    public Entity SpawnBeePrefabEntity;
+    public Entity BeeSpawnPrefabEntity;
 }
 
 partial struct DuringSpawnParticleVariant : IComponentData, IEnableableComponent
@@ -64,29 +64,55 @@ partial struct ResourcePrefabInitializationSystem : ISystem
     {
     }
 
-    [BurstCompile]
+    // [BurstCompile] // Can not use Burst compile since typeof is required
     public void OnUpdate(ref SystemState state)
     {
         var config = SystemAPI.GetSingleton<ParticleConfiguration>();
-        var particlePrefabEntity = config.particlePrefab;
-        state.EntityManager.AddComponent<ParticleTag>(particlePrefabEntity);
-        state.EntityManager.AddComponent<ParticleSize>(particlePrefabEntity);
-        state.EntityManager.AddComponentData<ParticleLife>(particlePrefabEntity, new ParticleLife { normalizedLife = 1f });
-        state.EntityManager.AddComponent<ParticleDuration>(particlePrefabEntity);
-        state.EntityManager.AddComponent<Velocity>(particlePrefabEntity);
-        state.EntityManager.AddComponent<URPMaterialPropertyBaseColor>(particlePrefabEntity);
-        state.EntityManager.AddComponentData(particlePrefabEntity, new PostTransformMatrix { Value = float4x4.identity });
-        state.EntityManager.AddComponent<RandomIndex>(particlePrefabEntity);
-        state.EntityManager.AddComponent<DuringSpawnParticleVariant>(particlePrefabEntity);
-        state.EntityManager.SetComponentEnabled<DuringSpawnParticleVariant>(particlePrefabEntity, true);
+        var bloodParticlePrefabEntity = config.particlePrefab;
+        state.EntityManager.AddComponent<ParticleTag>(bloodParticlePrefabEntity);
+        state.EntityManager.AddComponent<ParticleSize>(bloodParticlePrefabEntity);
+        state.EntityManager.AddComponentData<ParticleLife>(bloodParticlePrefabEntity, new ParticleLife { normalizedLife = 1f });
+        state.EntityManager.AddComponent<ParticleDuration>(bloodParticlePrefabEntity);
+        state.EntityManager.AddComponent<Velocity>(bloodParticlePrefabEntity);
+        state.EntityManager.AddComponent<URPMaterialPropertyBaseColor>(bloodParticlePrefabEntity);
+        state.EntityManager.AddComponentData(bloodParticlePrefabEntity, new PostTransformMatrix { Value = float4x4.identity });
+        state.EntityManager.AddComponent<RandomIndex>(bloodParticlePrefabEntity);
+        state.EntityManager.AddComponent<DuringSpawnParticleVariant>(bloodParticlePrefabEntity);
+        state.EntityManager.SetComponentEnabled<DuringSpawnParticleVariant>(bloodParticlePrefabEntity, true);
+        state.EntityManager.AddComponent<StuckedParticle>(bloodParticlePrefabEntity);
+        state.EntityManager.SetComponentEnabled<StuckedParticle>(bloodParticlePrefabEntity, false);
+
+        var sourceEntities = CollectionHelper.CreateNativeArray<Entity>(1, Allocator.Temp);
+        var targetEntities = CollectionHelper.CreateNativeArray<Entity>(1, Allocator.Temp);
+        sourceEntities[0] = bloodParticlePrefabEntity;
+        state.EntityManager.CopyEntities(sourceEntities, targetEntities);
+
+        var beeSpawnPrefabEntity = targetEntities[0];
+
+        state.EntityManager.AddComponent<BloodParticle>(bloodParticlePrefabEntity);
+        state.EntityManager.AddComponent<BeeSpawnParticle>(beeSpawnPrefabEntity);
+        state.EntityManager.SetComponentData(beeSpawnPrefabEntity, new URPMaterialPropertyBaseColor { Value = math.float4(1f) });
+
+
+        var particleSpawnData = state.EntityManager.CreateEntity(typeof(ParticleSpawnData));
+        state.EntityManager.SetComponentData(particleSpawnData, new ParticleSpawnData
+        {
+            BloodPrefabEntity = bloodParticlePrefabEntity,
+            BeeSpawnPrefabEntity = beeSpawnPrefabEntity
+        });
+
+
         state.Enabled = false;
+        sourceEntities.Dispose();
+        targetEntities.Dispose();
     }
 }
 
 [BurstCompile]
 partial struct ParticleSpawner
 {
-    [ReadOnly] public ParticleConfiguration config;
+    // [ReadOnly] public ParticleConfiguration config;
+    [ReadOnly] public ParticleSpawnData spawn;
 
 
     [BurstCompile]
@@ -96,8 +122,8 @@ partial struct ParticleSpawner
         float3 position,
         float3 velocity)
     {
-        var instance = ecb.Instantiate(sortKey, config.particlePrefab);
-        ecb.AddComponent(sortKey, instance, new BeeSpawnParticle { });
+        var instance = ecb.Instantiate(sortKey, spawn.BeeSpawnPrefabEntity);
+        // ecb.AddComponent(sortKey, instance, new BeeSpawnParticle { });
 
         ecb.SetComponent(sortKey, instance, new LocalToWorldTransform
         {
@@ -113,7 +139,7 @@ partial struct ParticleSpawner
             Duration = random.NextFloat(.25f, .5f)
         });
         ecb.SetComponent(sortKey, instance, new RandomIndex { random = Unity.Mathematics.Random.CreateFromIndex(random.NextUInt()) });
-        ecb.SetComponent(sortKey, instance, new URPMaterialPropertyBaseColor { Value = math.float4(1f) });
+        // ecb.SetComponent(sortKey, instance, new URPMaterialPropertyBaseColor { Value = math.float4(1f) });
 
         ecb.SetComponentEnabled<DuringSpawnParticleVariant>(sortKey, instance, false);
     }
@@ -134,8 +160,8 @@ partial struct ParticleSpawner
         }
         for (var i = 0; i < count; i++)
         {
-            var instance = ecb.Instantiate(sortKey, config.particlePrefab);
-            ecb.AddComponent(sortKey, instance, new BloodParticle { });
+            var instance = ecb.Instantiate(sortKey, spawn.BloodPrefabEntity);
+            // ecb.AddComponent(sortKey, instance, new BloodParticle { });
 
             ecb.SetComponent(sortKey, instance, new LocalToWorldTransform
             {
@@ -230,6 +256,7 @@ partial struct ParticleSpawnSystem : ISystem
         ParticleQuery = state.GetEntityQuery(typeof(ParticleTag));
         random = Unity.Mathematics.Random.CreateFromIndex(42);
 
+        state.RequireForUpdate<ParticleSpawnData>();
         state.RequireForUpdate<ParticleConfiguration>();
     }
 
@@ -242,10 +269,11 @@ partial struct ParticleSpawnSystem : ISystem
     {
         var ecb = SystemAPI.GetSingleton<EndFixedStepSimulationEntityCommandBufferSystem.Singleton>()
             .CreateCommandBuffer(state.WorldUnmanaged);
+        var spawn = SystemAPI.GetSingleton<ParticleSpawnData>();
         var config = SystemAPI.GetSingleton<ParticleConfiguration>();
         var ps = new ParticleSpawner
         {
-            config = config
+            spawn = spawn
         };
         if (ParticleQuery.CalculateEntityCount() > config.maxParticleCount)
         {
@@ -305,7 +333,8 @@ partial struct ParticleSimulationJob : IJobEntity
 
         if (stucked)
         {
-            ECB.AddComponent(inQueryIndex, entity, new StuckedParticle { });
+            // ECB.AddComponent(inQueryIndex, entity, new StuckedParticle { });
+            ECB.SetComponentEnabled<StuckedParticle>(inQueryIndex, entity, true);
             velocity.Value = float3.zero;
             // particle.cachedMatrix = Matrix4x4.TRS(particle.position, Quaternion.identity, particle.size);
         }

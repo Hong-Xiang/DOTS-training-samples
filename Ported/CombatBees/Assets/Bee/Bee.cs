@@ -18,6 +18,7 @@ partial struct BeeRandomWalkJob : IJobEntity
     [ReadOnly] public BeeConfiguration Config;
     public float DeltaTime;
 
+
     [BurstCompile]
     void Execute(ref RandomIndex random, TransformAspect transform, ref Velocity velocity)
     {
@@ -343,7 +344,9 @@ partial struct BeeEnemyTargetJob : IJobEntity
         if ((!LocalToWorldTransformFromEntity.HasComponent(enemyTargetAspect.BeeEntity)) ||
             DeathFromEntity.HasComponent(enemyTargetAspect.BeeEntity))
         {
-            enemyTargetAspect.RemoveTarget(ref ecb, inQueryIndex);
+            enemyTargetAspect.RemoveEnemyTarget(ref ecb, inQueryIndex);
+            // ecb.RemoveComponent<EnemyTargetEntity>(inQueryIndex, beeEntity);
+            ecb.SetComponentEnabled<EnemyTargetEntity>(inQueryIndex, beeEntity, false);
             // ecb.RemoveComponent<EnemyTargetAspect>(inQueryIndex, beeEntity);
         }
         else
@@ -368,14 +371,15 @@ partial struct BeeEnemyTargetJob : IJobEntity
                         enemyPosition,
                         velocity.Value * .5f, particleCount, float3.zero, 6f);
 
-                    // ParticleManager.SpawnParticle(bee.enemyTarget.position, ParticleType.Blood, bee.velocity * .35f, 2f, 6);
                     ecb.AddComponent(inQueryIndex, enemyTargetAspect.BeeEntity, new Dying { Timer = 1f });
                     ecb.SetComponent(inQueryIndex, enemyTargetAspect.BeeEntity, new Velocity
                     {
                         Value = enemyTargetAspect.Velocity * .5f
                     });
 
-                    enemyTargetAspect.RemoveTarget(ref ecb, inQueryIndex);
+                    enemyTargetAspect.RemoveEnemyTarget(ref ecb, inQueryIndex);
+                    // ecb.RemoveComponent<EnemyTargetEntity>(inQueryIndex, beeEntity);
+                    // ecb.SetComponentEnabled<EnemyTargetEntity>(inQueryIndex, beeEntity, false);
                 }
             }
         }
@@ -399,6 +403,7 @@ partial struct BeeEnemyTargetSystem : ISystem
 
         state.RequireForUpdate<BeeConfiguration>();
         state.RequireForUpdate<ParticleConfiguration>();
+        state.RequireForUpdate<ParticleSpawnData>();
     }
 
     [BurstCompile]
@@ -411,9 +416,10 @@ partial struct BeeEnemyTargetSystem : ISystem
     {
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
         var particleConfig = SystemAPI.GetSingleton<ParticleConfiguration>();
+        var particleSpawn = SystemAPI.GetSingleton<ParticleSpawnData>();
         var particleSpawner = new ParticleSpawner
         {
-            config = particleConfig
+            spawn = particleSpawn
         };
         var ecbSingleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
@@ -422,6 +428,7 @@ partial struct BeeEnemyTargetSystem : ISystem
 
         var deltaTime = SystemAPI.Time.DeltaTime;
         var particleCount = ParticleQuery.CalculateEntityCount();
+        // UnityEngine.Debug.Log(particleCount);
 
         state.Dependency = new BeeEnemyTargetJob
         {
@@ -762,31 +769,24 @@ partial struct BeeMoveSystem : ISystem
     }
 }
 
+struct BeeSpawnData : IComponentData
+{
+    public Entity BeePrefab;
+}
+
 [BurstCompile]
 [RequireMatchingQueriesForUpdate]
-partial struct BeeSpawnSystem : ISystem
+[UpdateInGroup(typeof(InitializationSystemGroup))]
+partial struct BeeSpawnPrefabUpdateSystem : ISystem
 {
-    Unity.Mathematics.Random random;
-
-
     [BurstCompile]
-    public static void SpawnBee(ref EntityCommandBuffer.ParallelWriter ECB, ref Unity.Mathematics.Random random,
-        in float3 pos, int team, in BeeConfiguration config, int sortKey)
+    public static void UpdateBeePrefab(ref EntityCommandBuffer.ParallelWriter ECB, in BeeConfiguration config, int sortKey)
     {
-        var instance = ECB.Instantiate(sortKey, config.BeePrefab);
-        var size = random.NextFloat(config.minBeeSize, config.maxBeeSize);
-        ECB.SetComponent(sortKey, instance, new LocalToWorldTransform
-        {
-            Value = UniformScaleTransform.FromPosition(pos).ApplyScale(size)
-        });
+        var instance = config.BeePrefab;
 
-        var velocity = random.NextFloat3Direction() * config.maxSpawnSpeed;
-        ECB.AddComponent(sortKey, instance, new Velocity { Value = velocity });
+        ECB.AddComponent<Velocity>(sortKey, instance);
 
-        ECB.AddSharedComponent(sortKey, instance, new Team { Value = team });
-        var color = team == 0 ? config.teamAColor : config.teamBColor;
-        ECB.AddComponent(sortKey, instance,
-            new URPMaterialPropertyBaseColor { Value = math.float4(color.r, color.g, color.b, color.a) });
+        ECB.AddComponent<URPMaterialPropertyBaseColor>(sortKey, instance);
         ECB.AddComponent(sortKey, instance, new BeeTag());
         ECB.AddComponent(sortKey, instance, new BeeSize
         {
@@ -795,22 +795,19 @@ partial struct BeeSpawnSystem : ISystem
         // ECB.AddComponent(instance, new SmoothPositionVelocityAspect { });
         SmoothPositionVelocityAspect.AddSmoothPositionVelocity(ref ECB, instance, sortKey);
         ECB.AddComponent(sortKey, instance, new PostTransformMatrix { Value = float4x4.identity });
-        ECB.AddComponent(sortKey, instance,
-            new RandomIndex { random = Unity.Mathematics.Random.CreateFromIndex(random.NextUInt()) });
+        ECB.AddComponent<RandomIndex>(sortKey, instance);
         ECB.AddComponent(sortKey, instance, new Attacking { isAttacking = false });
 
         // HACK: 尝试添加EnemyTargetVelociy，减少之后的AddComponent/RemoveComponent
         ECB.AddComponent(sortKey, instance, new EnemyTargetVelocity { Velocity = float3.zero });
+        ECB.AddComponent<EnemyTargetEntity>(sortKey, instance);
+        ECB.SetComponentEnabled<EnemyTargetEntity>(sortKey, instance, false);
     }
-
     public void OnCreate(ref SystemState state)
     {
-        random = Unity.Mathematics.Random.CreateFromIndex(233);
         state.RequireForUpdate<BeeConfiguration>();
-        state.RequireForUpdate<FieldComponent>();
     }
 
-    [BurstCompile]
     public void OnDestroy(ref SystemState state)
     {
     }
@@ -823,13 +820,90 @@ partial struct BeeSpawnSystem : ISystem
         var ecbSingleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged).AsParallelWriter();
         var field = SystemAPI.GetSingleton<FieldComponent>();
+        var sortKey = 0;
 
+        UpdateBeePrefab(ref ecb, config, sortKey);
+
+        var beeSpawn = ecb.CreateEntity(sortKey);
+        ecb.AddComponent(sortKey, beeSpawn, new BeeSpawnData { BeePrefab = config.BeePrefab });
+
+        state.Enabled = false;
+    }
+}
+
+[BurstCompile]
+[RequireMatchingQueriesForUpdate]
+partial struct BeeSpawnSystem : ISystem
+{
+
+
+
+    [BurstCompile]
+    public static void SpawnBee(ref EntityCommandBuffer.ParallelWriter ECB, ref Unity.Mathematics.Random random,
+        in float3 pos, int team, in BeeConfiguration config, in BeeSpawnData spawn, int sortKey)
+    {
+        var instance = ECB.Instantiate(sortKey, spawn.BeePrefab);
+        var size = random.NextFloat(config.minBeeSize, config.maxBeeSize);
+        ECB.SetComponent(sortKey, instance, new LocalToWorldTransform
+        {
+            Value = UniformScaleTransform.FromPosition(pos).ApplyScale(size)
+        });
+
+        var velocity = random.NextFloat3Direction() * config.maxSpawnSpeed;
+        ECB.SetComponent(sortKey, instance, new Velocity { Value = velocity });
+
+        ECB.AddSharedComponent(sortKey, instance, new Team { Value = team });
+        var color = team == 0 ? config.teamAColor : config.teamBColor;
+        ECB.SetComponent(sortKey, instance,
+            new URPMaterialPropertyBaseColor { Value = math.float4(color.r, color.g, color.b, color.a) });
+        // ECB.AddComponent(sortKey, instance, new BeeTag());
+        // ECB.AddComponent(sortKey, instance, new BeeSize
+        // {
+            // size = 1f,
+        // });
+        // ECB.AddComponent(instance, new SmoothPositionVelocityAspect { });
+        // SmoothPositionVelocityAspect.AddSmoothPositionVelocity(ref ECB, instance, sortKey);
+        // ECB.AddComponent(sortKey, instance, new PostTransformMatrix { Value = float4x4.identity });
+        ECB.SetComponent(sortKey, instance,
+            new RandomIndex { random = Unity.Mathematics.Random.CreateFromIndex(random.NextUInt()) });
+        // ECB.AddComponent(sortKey, instance, new Attacking { isAttacking = false });
+
+        // HACK: 尝试添加EnemyTargetVelociy，减少之后的AddComponent/RemoveComponent
+        // ECB.AddComponent(sortKey, instance, new EnemyTargetVelocity { Velocity = float3.zero });
+        // ECB.AddComponent<EnemyTargetEntity>(sortKey, instance);
+        // ECB.SetComponentEnabled<EnemyTargetEntity>(sortKey, instance, false);
+    }
+
+    public void OnCreate(ref SystemState state)
+    {
+        state.RequireForUpdate<BeeConfiguration>();
+        state.RequireForUpdate<FieldComponent>();
+        state.RequireForUpdate<BeeSpawnData>();
+    }
+
+    [BurstCompile]
+    public void OnDestroy(ref SystemState state)
+    {
+    }
+
+    [BurstCompile]
+    public void OnUpdate(ref SystemState state)
+    {
+        var config = SystemAPI.GetSingleton<BeeConfiguration>();
+        var spawn = SystemAPI.GetSingleton<BeeSpawnData>();
+
+        var ecbSingleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
+        var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged).AsParallelWriter();
+        var field = SystemAPI.GetSingleton<FieldComponent>();
+
+
+        var random = Unity.Mathematics.Random.CreateFromIndex(233);
         for (int i = 0; i < config.startBeeCount; i++)
         {
             int team = i % 2;
 
             Vector3 pos = Vector3.right * (-field.Size.x * .4f + field.Size.x * .8f * team);
-            SpawnBee(ref ecb, ref random, pos, team, config, i);
+            SpawnBee(ref ecb, ref random, pos, team, config, spawn, i);
         }
 
         state.Enabled = false;
@@ -907,6 +981,7 @@ partial struct BeeDeathSystem : ISystem
     {
         state.RequireForUpdate<FieldComponent>();
         state.RequireForUpdate<ParticleConfiguration>();
+        state.RequireForUpdate<ParticleSpawnData>();
         ResourceHolderFromEntity = state.GetComponentLookup<ResourceHolderEntity>();
         ParticleQuery = state.GetEntityQuery(typeof(ParticleTag));
         DeadBeeQuery = state.GetEntityQuery(typeof(BeeTag), typeof(Dead));
@@ -921,11 +996,12 @@ partial struct BeeDeathSystem : ISystem
     public void OnUpdate(ref SystemState state)
     {
         var particleConfig = SystemAPI.GetSingleton<ParticleConfiguration>();
+        var particleSpawn = SystemAPI.GetSingleton<ParticleSpawnData>();
         var fieldConfiguration = SystemAPI.GetSingleton<FieldComponent>();
 
         var ecb = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>()
             .CreateCommandBuffer(state.WorldUnmanaged).AsParallelWriter();
-        var particleSpawner = new ParticleSpawner { config = particleConfig };
+        var particleSpawner = new ParticleSpawner { spawn = particleSpawn };
         var particleCount = ParticleQuery.CalculateEntityCount();
         ResourceHolderFromEntity.Update(ref state);
 
