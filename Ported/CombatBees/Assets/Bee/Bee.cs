@@ -65,7 +65,7 @@ partial struct BeeRandomWalkSystem : ISystem
 [BurstCompile]
 partial struct BeeAlliesJob : IJobEntity
 {
-    [DeallocateOnJobCompletion][ReadOnly] public NativeArray<Entity> allies;
+    [DeallocateOnJobCompletion] [ReadOnly] public NativeArray<Entity> allies;
     [ReadOnly] public ComponentLookup<LocalToWorldTransform> LocalToWorldTransformFromEntity;
     [ReadOnly] public BeeConfiguration config;
     public float deltaTime;
@@ -148,8 +148,8 @@ partial struct BeeAlliesSystem : ISystem
 [BurstCompile]
 partial struct BeeNewTargetJob : IJobEntity
 {
-    [DeallocateOnJobCompletion][ReadOnly] public NativeArray<Entity> enemies;
-    [DeallocateOnJobCompletion][ReadOnly] public NativeArray<Entity> resources;
+    [DeallocateOnJobCompletion] [ReadOnly] public NativeArray<Entity> enemies;
+    [DeallocateOnJobCompletion] [ReadOnly] public NativeArray<Entity> resources;
     [ReadOnly] public ComponentLookup<ResourceHolderEntity> ResourceHolderFromEntity;
     public float aggression;
     public EntityCommandBuffer.ParallelWriter ECB;
@@ -232,7 +232,7 @@ partial struct BeeNewTargetSystem : ISystem
     JobHandle TargetEnemyTeam(ref SystemState state, ref EntityQuery enemyQuery, int aliasTeam, int enemyTeam,
         float aggression)
     {
-        var ecbSingleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
+        var ecbSingleton = SystemAPI.GetSingleton<EndFixedStepSimulationEntityCommandBufferSystem.Singleton>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
         enemyQuery.SetSharedComponentFilter(new Team { Value = enemyTeam });
         var enemies = enemyQuery.ToEntityArray(Allocator.TempJob);
@@ -421,14 +421,13 @@ partial struct BeeEnemyTargetSystem : ISystem
         {
             spawn = particleSpawn
         };
-        var ecbSingleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
+        var ecbSingleton = SystemAPI.GetSingleton<EndFixedStepSimulationEntityCommandBufferSystem.Singleton>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
         LocalToWorldTransformFromEntity.Update(ref state);
         DeathFromEntity.Update(ref state);
 
         var deltaTime = SystemAPI.Time.DeltaTime;
         var particleCount = ParticleQuery.CalculateEntityCount();
-        // UnityEngine.Debug.Log(particleCount);
 
         state.Dependency = new BeeEnemyTargetJob
         {
@@ -526,7 +525,6 @@ partial struct BeeResourceTargetJob : IJobEntity
             }
             else
             {
-
                 // 无法在ParallelJob下直接执行如下操作，会提示EntityManager会被修改
                 if (ResourceHolderTeamFromEntity[resourceEntity].Team != selfTeam.Value)
                 {
@@ -576,7 +574,7 @@ partial struct BeeResourceTargetSystem : ISystem
     public void OnUpdate(ref SystemState state)
     {
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
-        var ecb = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>()
+        var ecb = SystemAPI.GetSingleton<EndFixedStepSimulationEntityCommandBufferSystem.Singleton>()
             .CreateCommandBuffer(state.WorldUnmanaged);
         ResourceHolderEntityFromEntity.Update(ref state);
         ResourceHolderTeamFromEntity.Update(ref state);
@@ -658,7 +656,7 @@ partial struct BeeHoldingResourceTowardsHiveSystem : ISystem
     public void OnUpdate(ref SystemState state)
     {
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
-        var ecb = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>()
+        var ecb = SystemAPI.GetSingleton<EndFixedStepSimulationEntityCommandBufferSystem.Singleton>()
             .CreateCommandBuffer(state.WorldUnmanaged);
 
         var field = SystemAPI.GetSingleton<FieldComponent>();
@@ -780,7 +778,8 @@ struct BeeSpawnData : IComponentData
 partial struct BeeSpawnPrefabUpdateSystem : ISystem
 {
     [BurstCompile]
-    public static void UpdateBeePrefab(ref EntityCommandBuffer.ParallelWriter ECB, in BeeConfiguration config, int sortKey)
+    public static void UpdateBeePrefab(ref EntityCommandBuffer.ParallelWriter ECB, in BeeConfiguration config,
+        int sortKey)
     {
         var instance = config.BeePrefab;
 
@@ -804,6 +803,7 @@ partial struct BeeSpawnPrefabUpdateSystem : ISystem
         // ECB.AddComponent<EnemyTargetEntity>(sortKey, instance);
         // ECB.SetComponentEnabled<EnemyTargetEntity>(sortKey, instance, false);
     }
+
     public void OnCreate(ref SystemState state)
     {
         state.RequireForUpdate<BeeConfiguration>();
@@ -818,7 +818,7 @@ partial struct BeeSpawnPrefabUpdateSystem : ISystem
     {
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
 
-        var ecbSingleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
+        var ecbSingleton = SystemAPI.GetSingleton<EndFixedStepSimulationEntityCommandBufferSystem.Singleton>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged).AsParallelWriter();
         var field = SystemAPI.GetSingleton<FieldComponent>();
         var sortKey = 0;
@@ -836,9 +836,6 @@ partial struct BeeSpawnPrefabUpdateSystem : ISystem
 [RequireMatchingQueriesForUpdate]
 partial struct BeeSpawnSystem : ISystem
 {
-
-
-
     [BurstCompile]
     public static void SpawnBee(ref EntityCommandBuffer.ParallelWriter ECB, ref Unity.Mathematics.Random random,
         in float3 pos, int team, in BeeConfiguration config, in BeeSpawnData spawn, int sortKey)
@@ -860,7 +857,7 @@ partial struct BeeSpawnSystem : ISystem
         // ECB.AddComponent(sortKey, instance, new BeeTag());
         // ECB.AddComponent(sortKey, instance, new BeeSize
         // {
-            // size = 1f,
+        // size = 1f,
         // });
         // ECB.AddComponent(instance, new SmoothPositionVelocityAspect { });
         // SmoothPositionVelocityAspect.AddSmoothPositionVelocity(ref ECB, instance, sortKey);
@@ -893,7 +890,7 @@ partial struct BeeSpawnSystem : ISystem
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
         var spawn = SystemAPI.GetSingleton<BeeSpawnData>();
 
-        var ecbSingleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
+        var ecbSingleton = SystemAPI.GetSingleton<EndFixedStepSimulationEntityCommandBufferSystem.Singleton>();
         var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged).AsParallelWriter();
         var field = SystemAPI.GetSingleton<FieldComponent>();
 
@@ -918,12 +915,14 @@ partial struct DyingBeeRemoveHoldingResourceJob : IJobEntity
 {
     [ReadOnly] public ComponentLookup<ResourceHolderEntity> ResourceHolderFromEntity;
     public EntityCommandBuffer.ParallelWriter ecb;
+
     [BurstCompile]
     void Execute(in HoldingResource holdingResource, in Entity beeEntity, [EntityInQueryIndex] int inQueryIndex)
     {
         var resourceEntity = holdingResource.ResourceEntity;
         ecb.RemoveComponent<HoldingResource>(inQueryIndex, beeEntity);
-        if (ResourceHolderFromEntity.HasComponent(resourceEntity) && ResourceHolderFromEntity[resourceEntity].Holder == beeEntity)
+        if (ResourceHolderFromEntity.HasComponent(resourceEntity) &&
+            ResourceHolderFromEntity[resourceEntity].Holder == beeEntity)
         {
             ecb.RemoveComponent<ResourceHolderEntity>(inQueryIndex, resourceEntity);
             ecb.RemoveComponent<ResourceHolderTeam>(inQueryIndex, resourceEntity);
@@ -975,9 +974,9 @@ partial struct BeeDeathJob : IJobEntity
 partial struct BeeDeathSystem : ISystem
 {
     EntityQuery ParticleQuery;
-    EntityQuery DeadBeeQuery;
 
     ComponentLookup<ResourceHolderEntity> ResourceHolderFromEntity;
+
     public void OnCreate(ref SystemState state)
     {
         state.RequireForUpdate<FieldComponent>();
@@ -985,7 +984,6 @@ partial struct BeeDeathSystem : ISystem
         state.RequireForUpdate<ParticleSpawnData>();
         ResourceHolderFromEntity = state.GetComponentLookup<ResourceHolderEntity>();
         ParticleQuery = state.GetEntityQuery(typeof(ParticleTag));
-        DeadBeeQuery = state.GetEntityQuery(typeof(BeeTag), typeof(Dead));
     }
 
     [BurstCompile]
@@ -1000,7 +998,7 @@ partial struct BeeDeathSystem : ISystem
         var particleSpawn = SystemAPI.GetSingleton<ParticleSpawnData>();
         var fieldConfiguration = SystemAPI.GetSingleton<FieldComponent>();
 
-        var ecb = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>()
+        var ecb = SystemAPI.GetSingleton<EndFixedStepSimulationEntityCommandBufferSystem.Singleton>()
             .CreateCommandBuffer(state.WorldUnmanaged).AsParallelWriter();
         var particleSpawner = new ParticleSpawner { spawn = particleSpawn };
         var particleCount = ParticleQuery.CalculateEntityCount();
@@ -1021,6 +1019,5 @@ partial struct BeeDeathSystem : ISystem
             ParticleSpawner = particleSpawner,
             ParticleCount = particleCount > particleConfig.maxParticleCount ? 0 : particleConfig.beeDeathParticleCount,
         }.ScheduleParallel(state.Dependency);
-
     }
 }
