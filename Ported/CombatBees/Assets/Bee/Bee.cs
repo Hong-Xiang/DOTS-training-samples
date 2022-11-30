@@ -328,6 +328,8 @@ partial struct BeeEnemyTargetJob : IJobEntity
 
     [ReadOnly] public BeeConfiguration config;
     [ReadOnly] public ParticleSpawner particleSpawner;
+    [NativeDisableParallelForRestriction]
+    public ParticleCount ParticleCount;
     public EntityCommandBuffer.ParallelWriter ecb;
     public float deltaTime;
     public int particleCount;
@@ -383,9 +385,8 @@ partial struct BeeEnemyTargetJob : IJobEntity
                     {
                         Value = enemyTargetAspect.Velocity * .5f
                     });
-
-
                     enemyTargetAspect.RemoveEnemyTarget(ref ecb, inQueryIndex);
+
                     // ecb.RemoveComponent<EnemyTargetEntity>(inQueryIndex, beeEntity);
                     // ecb.SetComponentEnabled<EnemyTargetEntity>(inQueryIndex, beeEntity, false);
                 }
@@ -515,12 +516,12 @@ partial struct BeeResourceTargetJob : IJobEntity
                         {
                             Team = selfTeam.Value
                         });
-                        ecb.RemoveComponent<Stacked>(inQueryIndex, resourceEntity);
+                        // ecb.RemoveComponent<Stacked>(inQueryIndex, resourceEntity);
                         ecb.AddComponent(inQueryIndex, beeEntity, new HoldingResource
                         {
                             ResourceEntity = resourceEntity
                         });
-                        ecb.RemoveComponent<ResourceTarget>(inQueryIndex, beeEntity);
+                        // ecb.RemoveComponent<ResourceTarget>(inQueryIndex, beeEntity);
                     }
                 }
             }
@@ -561,7 +562,7 @@ partial struct BeeResourceTargetSystem : ISystem
     ComponentLookup<Stacked> StackedFromEntity;
     ComponentLookup<ResourceTag> ResourceComponentFromEntity;
 
-    [BurstCompile]
+
     public void OnCreate(ref SystemState state)
     {
         ResourceHolderEntityFromEntity = state.GetComponentLookup<ResourceHolderEntity>(true);
@@ -603,6 +604,34 @@ partial struct BeeResourceTargetSystem : ISystem
             ecb = ecb.AsParallelWriter(),
             DeltaTime = deltaTime
         }.ScheduleParallel(state.Dependency);
+    }
+}
+
+[UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
+[RequireMatchingQueriesForUpdate]
+[UpdateAfter(typeof(BeeResourceTargetSystem))]
+[BurstCompile]
+partial struct BeeRemoveResourceTargetAfterBecomingHoldingResource : ISystem
+{
+    EntityQuery HasHolderResourceEntity;
+    EntityQuery HasResourceBeeEntity;
+
+    public void OnCreate(ref SystemState state)
+    {
+        HasHolderResourceEntity = state.GetEntityQuery(typeof(ResourceTag), typeof(ResourceHolderEntity));
+        HasResourceBeeEntity = state.GetEntityQuery(typeof(BeeTag), typeof(HoldingResource));
+    }
+
+    public void OnDestroy(ref SystemState state)
+    {
+    }
+
+    public void OnUpdate(ref SystemState state)
+    {
+        var ecb = SystemAPI.GetSingleton<EndFixedStepSimulationEntityCommandBufferSystem.Singleton>()
+            .CreateCommandBuffer(state.WorldUnmanaged);
+        ecb.RemoveComponentForEntityQuery<Stacked>(HasHolderResourceEntity);
+        ecb.RemoveComponentForEntityQuery<ResourceTarget>(HasResourceBeeEntity);
     }
 }
 

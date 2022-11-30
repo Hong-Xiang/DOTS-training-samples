@@ -58,6 +58,11 @@ partial struct ParticleSpawnData : IComponentData
     public Entity BeeSpawnPrefabEntity;
 }
 
+partial struct ParticleCount : IComponentData
+{
+    public int TotalCount;
+}
+
 partial struct DuringSpawnParticleVariant : IComponentData, IEnableableComponent
 {
     public float3 Position;
@@ -182,9 +187,13 @@ partial struct ParticleSpawner
             return;
         }
 
-        for (var i = 0; i < count; i++)
+        var instances = CollectionHelper.CreateNativeArray<Entity>(count, Allocator.Temp);
+        ecb.Instantiate(sortKey, spawn.BloodPrefabEntity, instances);
+
+        // for (var i = 0; i < count; i++)
+        foreach (var instance in instances)
         {
-            var instance = ecb.Instantiate(sortKey, spawn.BloodPrefabEntity);
+            // var instance = ecb.Instantiate(sortKey, spawn.BloodPrefabEntity);
             // ecb.AddComponent(sortKey, instance, new BloodParticle { });
 
             ecb.SetComponent(sortKey, instance, new LocalToWorldTransform
@@ -203,6 +212,8 @@ partial struct ParticleSpawner
                 Velocity = velocityVariant
             });
         }
+
+        instances.Dispose();
     }
 }
 
@@ -279,6 +290,7 @@ partial struct ParticleSpawnSystem : ISystem
 
         state.RequireForUpdate<ParticleSpawnData>();
         state.RequireForUpdate<ParticleConfiguration>();
+        state.RequireForUpdate<ParticleCount>();
     }
 
     public void OnDestroy(ref SystemState state)
@@ -303,7 +315,8 @@ partial struct ParticleSpawnSystem : ISystem
 
         var random = Random.CreateFromIndex(42);
 
-        ps.SpawnParticleBlood(ref random, 0, ecb.AsParallelWriter(), float3.zero, float3.zero, 100, float3.zero, 6f);
+        ps.SpawnParticleBlood(ref random, 0, ecb.AsParallelWriter(), float3.zero, float3.zero, 100,
+            float3.zero, 6f);
 
         state.Enabled = false;
     }

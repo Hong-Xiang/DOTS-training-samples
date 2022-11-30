@@ -258,7 +258,7 @@ MonoBehaviour:
   carryStiffness: 15
   spawnRate: 10
   beesPerResource: 8
-  startResourceCount: 500
+  startResourceCount: 600
   maxResourceCount: 1000
 --- !u!4 &1258550034
 Transform:

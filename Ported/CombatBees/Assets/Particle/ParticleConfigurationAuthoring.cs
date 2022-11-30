@@ -3,6 +3,7 @@ using Unity.Mathematics;
 using Unity.Rendering;
 using Unity.Transforms;
 using UnityEngine;
+
 class ParticleConfigurationAuthoring : MonoBehaviour
 {
     public float speedStretch;
@@ -15,7 +16,6 @@ class ParticleConfigurationAuthoring : MonoBehaviour
     {
         public override void Bake(ParticleConfigurationAuthoring authoring)
         {
-
             var particlePrefabEntity = GetEntity(authoring.particlePrefab);
             AddComponent<ParticleConfiguration>(new ParticleConfiguration
             {
@@ -24,6 +24,10 @@ class ParticleConfigurationAuthoring : MonoBehaviour
                 particlePrefab = GetEntity(authoring.particlePrefab),
                 beeAttackParticleCount = authoring.beeAttackParticleCount,
                 beeDeathParticleCount = authoring.beeDeathParticleCount
+            });
+            AddComponent(new ParticleCount
+            {
+                TotalCount = 0
             });
         }
     }
