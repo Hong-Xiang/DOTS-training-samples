@@ -25,7 +25,6 @@ partial struct ParticleLife : IComponentData
     public float normalizedLife; // always within [0, 1]
 }
 
-
 partial struct StuckedParticle : IComponentData, IEnableableComponent
 {
 }
@@ -272,13 +271,11 @@ partial struct ParticleDuringSpawnRandomValueSystem : ISystem
 partial struct ParticleSpawnSystem : ISystem
 {
     EntityQuery ParticleQuery;
-    Unity.Mathematics.Random random;
 
     public void OnCreate(ref SystemState state)
     {
         state.Enabled = false;
         ParticleQuery = state.GetEntityQuery(typeof(ParticleTag));
-        random = Unity.Mathematics.Random.CreateFromIndex(42);
 
         state.RequireForUpdate<ParticleSpawnData>();
         state.RequireForUpdate<ParticleConfiguration>();
@@ -304,6 +301,8 @@ partial struct ParticleSpawnSystem : ISystem
             return;
         }
 
+        var random = Random.CreateFromIndex(42);
+
         ps.SpawnParticleBlood(ref random, 0, ecb.AsParallelWriter(), float3.zero, float3.zero, 100, float3.zero, 6f);
 
         state.Enabled = false;
@@ -323,18 +322,23 @@ partial struct ParticleSimulationJob : IJobEntity
         [EntityInQueryIndex] int inQueryIndex)
     {
         velocity.Value += math.float3(0f, 1f, 0f) * (field.Gravity * deltaTime);
-        var position = transform.Position;
-        position += velocity.Value * deltaTime;
+        var position = transform.Position + velocity.Value * deltaTime;
 
         var stucked = math.abs(position) > (field.Size * .5f);
+
         position = math.select(
             position,
             field.Size * .5f * math.sign(position),
             stucked
         );
+        transform.Position = position;
+
         var splat = math.select(math.float3(1f), math.abs(velocity.Value * .3f) + 1f, stucked);
-        particle.size *= (splat.x * splat.y * splat.z);
-        particle.size /= splat;
+        particle.size *= math.float3(
+            splat.y * splat.z,
+            splat.x * splat.z,
+            splat.x * splat.y
+        );
 
         if (math.any(stucked))
         {
@@ -343,8 +347,6 @@ partial struct ParticleSimulationJob : IJobEntity
             StuckedParticleHelper.MarkStucked(ref ECB, inQueryIndex, entity);
             velocity.Value = float3.zero;
         }
-        
-        transform.Position = position;
     }
 }
 
@@ -442,7 +444,7 @@ partial struct BloodParticlePresentJob : IJobEntity
         in Velocity velocity,
         in ParticleLife life)
     {
-        float3 scale = math.float3(particle.size * life.normalizedLife);
+        var scale = math.float3(particle.size * life.normalizedLife);
         var rotation = quaternion.LookRotation(velocity.Value, math.float3(0f, 1f, 0f));
         scale.z *= 1f + math.length(velocity.Value) * config.speedStretch;
         matrix.Value = float4x4.TRS(

@@ -7,6 +7,7 @@ using Unity.Transforms;
 using Unity.Rendering;
 using UnityEngine;
 using Unity.Burst;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 
 
@@ -119,7 +120,7 @@ partial struct BeeAlliesSystem : ISystem
     }
 
     [BurstCompile]
-    void AlliesFriend(ref SystemState state, int team)
+    JobHandle AlliesFriend(ref SystemState state, int team)
     {
         var config = SystemAPI.GetSingleton<BeeConfiguration>();
         var deltaTime = SystemAPI.Time.DeltaTime;
@@ -127,7 +128,7 @@ partial struct BeeAlliesSystem : ISystem
         q.SetSharedComponentFilter(new Team { Value = team });
         var allies = q.ToEntityArray(Allocator.TempJob);
         LocalToWorldTransformFromEntity.Update(ref state);
-        state.Dependency = new BeeAlliesJob
+        return new BeeAlliesJob
         {
             allies = allies,
             LocalToWorldTransformFromEntity = LocalToWorldTransformFromEntity,
@@ -138,8 +139,10 @@ partial struct BeeAlliesSystem : ISystem
 
     public void OnUpdate(ref SystemState state)
     {
-        AlliesFriend(ref state, 0);
-        AlliesFriend(ref state, 1);
+        var j0 = AlliesFriend(ref state, 0);
+        var j1 = AlliesFriend(ref state, 1);
+
+        state.Dependency = JobHandle.CombineDependencies(j0, j1);
     }
 }
 
@@ -317,6 +320,10 @@ partial struct BeeEnemyTargetVelocityUpdateSystem : ISystem
 partial struct BeeEnemyTargetJob : IJobEntity
 {
     [ReadOnly] public ComponentLookup<LocalToWorldTransform> LocalToWorldTransformFromEntity;
+
+    [NativeDisableContainerSafetyRestriction] [ReadOnly]
+    public ComponentLookup<Velocity> VelocityFromEntity;
+
     [ReadOnly] public ComponentLookup<Dying> DeathFromEntity;
 
     [ReadOnly] public BeeConfiguration config;
@@ -376,6 +383,7 @@ partial struct BeeEnemyTargetJob : IJobEntity
                     {
                         Value = enemyTargetAspect.Velocity * .5f
                     });
+
 
                     enemyTargetAspect.RemoveEnemyTarget(ref ecb, inQueryIndex);
                     // ecb.RemoveComponent<EnemyTargetEntity>(inQueryIndex, beeEntity);
@@ -954,15 +962,12 @@ partial struct BeeDeathJob : IJobEntity
                 velocity.Value, ParticleCount, float3.zero, float3.zero);
         }
 
-        var v = velocity.Value;
-        v.y += fieldConfiguration.Gravity * deltaTime;
-        velocity.Value = v;
+        velocity.Value.y += fieldConfiguration.Gravity * deltaTime;
 
         death.Timer -= deltaTime / 10f;
         if (death.Timer < 0f)
         {
             ecb.DestroyEntity(inQueryIndex, e);
-            // ecb.AddComponent<Dead>(inQueryIndex, e);
         }
     }
 }

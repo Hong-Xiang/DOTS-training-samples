@@ -27,11 +27,13 @@ readonly partial struct SmoothPositionVelocityAspect : IAspect
     readonly RefRW<SmoothPosition> position;
     readonly RefRW<SmoothVelocity> velocity;
     readonly TransformAspect transform;
+
     public float3 Position
     {
         get => position.ValueRO.Position;
         set => position.ValueRW.Position = value;
     }
+
     public float3 Velocity
     {
         get => velocity.ValueRO.Velocity;
@@ -45,7 +47,6 @@ readonly partial struct SmoothPositionVelocityAspect : IAspect
         var newPosition = math.lerp(oldPosition, transform.Position, deltaTime * rotationStiffness);
         Position = newPosition;
         Velocity = newPosition - oldPosition;
-
     }
 
     [BurstCompile]
@@ -55,11 +56,11 @@ readonly partial struct SmoothPositionVelocityAspect : IAspect
         var newPosition = transform.Position;
         Position = newPosition;
         Velocity = newPosition - oldPosition;
-
     }
 
     [BurstCompile]
-    public static void AddSmoothPositionVelocity(ref EntityCommandBuffer.ParallelWriter ecb, in Entity self, int sortKey)
+    public static void AddSmoothPositionVelocity(ref EntityCommandBuffer.ParallelWriter ecb, in Entity self,
+        int sortKey)
     {
         ecb.AddComponent(sortKey, self, new SmoothPosition { });
         ecb.AddComponent(sortKey, self, new SmoothVelocity { });
@@ -126,13 +127,13 @@ partial struct AliveBeeSmoothMovePresentJob : IJobEntity
 
     [BurstCompile]
     void Execute(ref PostTransformMatrix matrix,
-                 in BeeSize beeSize,
-                 in Velocity velocity,
-                 in SmoothPositionVelocityAspect smooth
-        )
+        in BeeSize beeSize,
+        in Velocity velocity,
+        in SmoothPositionVelocityAspect smooth
+    )
     {
-        float3 scale = math.float3(beeSize.size);
-        float stretch = math.max(1f, math.length(velocity.Value) * config.speedStretch);
+        var scale = math.float3(beeSize.size);
+        var stretch = math.max(1f, math.length(velocity.Value) * config.speedStretch);
         scale.z *= stretch;
         scale.x /= (stretch - 1f) / 5f + 1f;
         scale.y /= (stretch - 1f) / 5f + 1f;
@@ -142,6 +143,11 @@ partial struct AliveBeeSmoothMovePresentJob : IJobEntity
         {
             rotation = quaternion.LookRotation(smooth.Velocity, math.float3(0f, 1f, 0f));
         }
+        // var rotation = math.quaternion(
+        //    math.select(quaternion.identity.value,
+        //        quaternion.LookRotation(smooth.Velocity, math.float3(0f, 1f, 0f)).value,
+        //        math.length(smooth.Velocity) > math.EPSILON));
+
         matrix.Value = float4x4.TRS(float3.zero, rotation, scale);
     }
 }
@@ -153,20 +159,20 @@ partial struct DyingBeeSmoothMovePresentJob : IJobEntity
 
     [BurstCompile]
     void Execute(ref PostTransformMatrix matrix,
-                 ref URPMaterialPropertyBaseColor color,
-                 in BeeTag bee,
-                 in Team team,
-                 in Dying dying,
-                 in Velocity velocity,
-                 in SmoothPositionVelocityAspect smooth
-        )
+        ref URPMaterialPropertyBaseColor color,
+        in BeeTag bee,
+        in Team team,
+        in Dying dying,
+        in Velocity velocity,
+        in SmoothPositionVelocityAspect smooth
+    )
     {
-
         quaternion rotation = quaternion.identity;
         if (math.length(smooth.Velocity) > math.EPSILON)
         {
             rotation = quaternion.LookRotation(smooth.Velocity, math.float3(0f, 1f, 0f));
         }
+
         matrix.Value = float4x4.TRS(float3.zero, rotation, math.float3(math.sqrt(dying.Timer)));
         var c = team.Value == 0 ? config.teamAColor : config.teamBColor;
         color.Value = math.float4(math.float3(c.r, c.g, c.b) * .75f, 1f);

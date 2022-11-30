@@ -105,7 +105,3 @@ struct HoldingResource : IComponentData
 {
     public Entity ResourceEntity;
 }
-
-struct Dead : IComponentData
-{
-}

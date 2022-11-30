@@ -7,9 +7,14 @@ using Unity.Collections;
 using System.Threading;
 using Unity.Collections.LowLevel.Unsafe;
 
+[UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
+partial class ResourceSimulationGroup : ComponentSystemGroup
+{
+}
 
 [BurstCompile]
 [RequireMatchingQueriesForUpdate]
+[UpdateInGroup(typeof(ResourceSimulationGroup))]
 partial struct ResourceSpawnSystem : ISystem
 {
     bool isFirstFrame;
@@ -166,7 +171,7 @@ partial struct ResourceFollowHolderSystem : ISystem
         LocalToWorldTransformFromEntity.Update(ref state);
         VelocityFromEntity.Update(ref state);
         DyingFromEntity.Update(ref state);
-     
+
         state.Dependency = new ResourceFollowHolderJob
         {
             BeeSizeFromEntity = BeeSizeFromEntity,
@@ -273,7 +278,7 @@ partial struct ResourceFallenJob : IJobEntity
 
 
 [BurstCompile]
-[UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
+[UpdateInGroup(typeof(ResourceSimulationGroup))]
 partial struct ResourceFallenSystem : ISystem
 {
     Unity.Mathematics.Random random;
@@ -359,7 +364,7 @@ partial struct ResourceStackingJob : IJobEntity
     }
 }
 
-[UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
+[UpdateInGroup(typeof(ResourceSimulationGroup))]
 [UpdateAfter(typeof(ResourceFallenSystem))]
 [BurstCompile]
 partial struct ResourceStackingSystem : ISystem
@@ -382,7 +387,7 @@ partial struct ResourceStackingSystem : ISystem
         var grid = SystemAPI.GetSingleton<Grid>();
         var config = SystemAPI.GetSingleton<ResourceConfiguration>();
         var stackHeight = SystemAPI.GetSingletonBuffer<StackHeight>().Reinterpret<int>().AsNativeArray();
-        stackHeight.AsSpan().Fill(0);
+        stackHeight.AsSpan().Clear();
 
         state.Dependency = new ResourceStackingJob
         {
@@ -409,7 +414,7 @@ partial struct ResourceRemoveOverHeightJob : IJobEntity
     }
 }
 
-[UpdateInGroup(typeof(FixedStepSimulationSystemGroup), OrderLast = true)]
+[UpdateInGroup(typeof(ResourceSimulationGroup), OrderLast = true)]
 [RequireMatchingQueriesForUpdate]
 [BurstCompile]
 partial struct ResourceOverHeightRemoveSystem : ISystem
